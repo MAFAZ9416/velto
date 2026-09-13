@@ -61,6 +61,7 @@ from apps.conversions.security.rate_limits import (
     JobCreateRateThrottle,
     OcrRateThrottle,
     PdfUtilityRateThrottle,
+    QueueMonitorRateThrottle,
     UploadRateThrottle,
 )
 
@@ -108,4 +109,5 @@ __all__ = [
     "OcrRateThrottle",
     "PdfUtilityRateThrottle",
     "DownloadRateThrottle",
+    "QueueMonitorRateThrottle",
 ]

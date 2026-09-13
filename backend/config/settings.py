@@ -161,3 +161,30 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
 
 # Temporary staging directory for conversion processing (not persisted in DB).
 TEMP_UPLOAD_DIR = Path(os.environ.get("TEMP_UPLOAD_DIR", BASE_DIR.parent / "tmp_uploads"))
+
+# ── Celery & Redis Configuration ───────────────────────────────────────────────
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# Timeouts: 5 min hard limit, 4 min soft limit
+CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", 300))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", 240))
+
+# Worker reliability
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+import sys
+TESTING = "test" in sys.argv or os.environ.get("TESTING", "False").lower() in ("true", "1", "t")
+
+# Celery Eager Mode (Synchronous execution for testing or fallback)
+CELERY_TASK_ALWAYS_EAGER = TESTING or (os.environ.get("CELERY_TASK_ALWAYS_EAGER", "False").lower() in ("true", "1", "t"))
+CELERY_TASK_EAGER_PROPAGATES = True
+
+

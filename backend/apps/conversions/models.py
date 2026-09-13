@@ -10,10 +10,15 @@ from apps.conversions.formats import FORMAT_CHOICES
 
 class JobStatus(models.TextChoices):
     PENDING = "pending", "Pending"
+    QUEUED = "queued", "Queued"
+    STARTED = "started", "Started"
     PROCESSING = "processing", "Processing"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
+    RETRYING = "retrying", "Retrying"
+    CANCEL_REQUESTED = "cancel_requested", "Cancel Requested"
     CANCELLED = "cancelled", "Cancelled"
+    EXPIRED = "expired", "Expired"
 
 
 class ConversionJob(models.Model):
@@ -100,6 +105,74 @@ class ConversionJob(models.Model):
         help_text="Optional parameters for conversion engine (e.g. resize, quality).",
     )
 
+    # ── Progress & stage fields ───────────────────────────────────────────────
+    progress = models.IntegerField(
+        default=0,
+        help_text="Job progress percentage 0-100.",
+    )
+    current_stage = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Human readable stage identifier.",
+    )
+    stage_message = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Detailed stage status message.",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Machine-readable error code.",
+    )
+
+    # ── Retry & Execution tracking ────────────────────────────────────────────
+    retry_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of retry attempts executed.",
+    )
+    max_retries = models.PositiveIntegerField(
+        default=3,
+        help_text="Maximum allowed retries.",
+    )
+    failed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job reached FAILED status.",
+    )
+    cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job was cancelled.",
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the output file or job metadata expires.",
+    )
+
+    # ── Celery & worker correlation ───────────────────────────────────────────
+    celery_task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Associated Celery task UUID.",
+    )
+    worker_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Name of worker that processed the task.",
+    )
+    last_heartbeat = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last active heartbeat timestamp from worker.",
+    )
+
     # ── File-path metadata (never store file bytes here) ──────────────────────
     input_path = models.CharField(
         max_length=1024,
@@ -144,10 +217,15 @@ class ConversionJob(models.Model):
         )
 
     @property
+    def public_id(self) -> str:
+        return str(self.id)
+
+    @property
     def is_terminal(self) -> bool:
-        """True if the job is in a final state (completed, failed, cancelled)."""
+        """True if the job is in a final state (completed, failed, cancelled, expired)."""
         return self.status in (
             JobStatus.COMPLETED,
             JobStatus.FAILED,
             JobStatus.CANCELLED,
+            JobStatus.EXPIRED,
         )

@@ -227,6 +227,48 @@ class ConversionService:
         )
         return job
 
+    # ── Task dispatch ─────────────────────────────────────────────────────────
+
+    @classmethod
+    def dispatch_job(cls, job: ConversionJob) -> ConversionJob:
+        """
+        Dispatch the job for processing.
+
+        If CELERY_TASK_ALWAYS_EAGER is True (or during unit tests / fallback),
+        processes synchronously. Otherwise, schedules background execution
+        via transaction.on_commit().
+        """
+        from apps.conversions.tasks import process_conversion_job_task
+
+        job_id_str = str(job.id)
+
+        def _send_task():
+            try:
+                res = process_conversion_job_task.delay(job_id_str)
+                if hasattr(res, "id") and res.id:
+                    ConversionJob.objects.filter(pk=job.id).update(celery_task_id=res.id)
+            except Exception as exc:
+                logger.warning(
+                    "Celery dispatch failed for job %s (falling back to sync processing): %s",
+                    job.id,
+                    exc,
+                )
+                cls.process_job(job)
+
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False) or getattr(settings, "TESTING", False):
+            _send_task()
+            job.refresh_from_db()
+            return job
+
+        try:
+            transaction.on_commit(_send_task)
+        except Exception as exc:
+            logger.warning("on_commit hook registration failed; triggering immediate dispatch: %s", exc)
+            _send_task()
+
+        job.refresh_from_db()
+        return job
+
     # ── Job processing ─────────────────────────────────────────────────────────
 
     @classmethod

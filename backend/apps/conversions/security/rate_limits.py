@@ -64,3 +64,10 @@ class DownloadRateThrottle(BaseVeltoThrottle):
     """Rate limit for output download endpoints."""
     scope = "download"
     rate = "60/minute"
+
+
+class QueueMonitorRateThrottle(BaseVeltoThrottle):
+    """Rate limit for admin queue monitoring endpoint."""
+    scope = "queue_monitor"
+    rate = "30/minute"
+

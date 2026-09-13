@@ -1,10 +1,13 @@
 """
-Views for the conversions app — Security Hardened.
+Views for the conversions app — Security Hardened & Background Job Processing Enabled.
 
 Integrated with:
-  - DRF rate throttles (JobCreateRateThrottle, PdfUtilityRateThrottle, OcrRateThrottle, DownloadRateThrottle).
+  - Celery background job processing via ConversionService.dispatch_job.
+  - DRF rate throttles (JobCreateRateThrottle, PdfUtilityRateThrottle, OcrRateThrottle, DownloadRateThrottle, QueueMonitorRateThrottle).
   - Session and User ownership enforcement (check_job_ownership, filter_jobs_for_request).
   - Resource abuse controls (check_concurrent_jobs).
+  - Database-authoritative job cancellation endpoint.
+  - Staff-only queue monitoring endpoint.
   - Security diagnostics endpoint (GET /api/v1/security/diagnostics/).
 """
 
@@ -12,9 +15,12 @@ import logging
 import os
 from pathlib import Path
 
+from django.db import transaction
 from django.http import FileResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -30,6 +36,7 @@ from apps.conversions.security import (
     JobCreateRateThrottle,
     OcrRateThrottle,
     PdfUtilityRateThrottle,
+    QueueMonitorRateThrottle,
     UploadRateThrottle,
     check_concurrent_jobs,
     check_job_ownership,
@@ -91,7 +98,7 @@ class SecurityDiagnosticsView(APIView):
 class ConversionJobListCreateView(APIView):
     """
     GET  /api/conversions/   — list jobs owned by the current session or user.
-    POST /api/conversions/   — upload a file, run conversion, return real status.
+    POST /api/conversions/   — upload a file, queue background conversion job, return status.
     """
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [JobCreateRateThrottle, UploadRateThrottle]
@@ -138,7 +145,7 @@ class ConversionJobListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        job = ConversionService.process_job(job)
+        job = ConversionService.dispatch_job(job)
         output = ConversionJobSerializer(job)
         http_status = (
             status.HTTP_201_CREATED
@@ -172,6 +179,69 @@ class ConversionJobDetailView(APIView):
         return Response(serializer.data)
 
 
+class ConversionJobCancelView(APIView):
+    """
+    POST /api/conversions/{id}/cancel/ or POST /api/jobs/{id}/cancel/
+    Request cancellation of an active or queued conversion job.
+    """
+    def post(self, request, job_id):
+        jobs = filter_jobs_for_request(request)
+        try:
+            job = jobs.get(pk=job_id)
+            check_job_ownership(request, job)
+        except (ConversionJob.DoesNotExist, ValueError):
+            return Response(
+                {"error": True, "message": "Conversion job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if job.status == JobStatus.COMPLETED:
+            return Response(
+                {"error": True, "message": "Completed jobs cannot be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if job.status in (JobStatus.CANCELLED, JobStatus.CANCEL_REQUESTED):
+            serializer = ConversionJobSerializer(job)
+            return Response(
+                {"message": "Conversion job is already cancelled.", "job": serializer.data},
+                status=status.HTTP_200_OK,
+            )
+
+        # Database-authoritative cancellation
+        with transaction.atomic():
+            job.status = JobStatus.CANCEL_REQUESTED
+            job.cancelled_at = timezone.now()
+            job.stage_message = "Cancellation requested by user."
+            job.save(update_fields=["status", "cancelled_at", "stage_message"])
+
+        # Attempt Celery task revocation if task_id is recorded
+        if job.celery_task_id:
+            try:
+                from config.celery import app as celery_app
+                celery_app.control.revoke(job.celery_task_id, terminate=True)
+            except Exception as exc:
+                logger.warning("Could not revoke Celery task %s: %s", job.celery_task_id, exc)
+
+        # Clean up workspace files
+        ConversionService.cleanup_job_files(job)
+
+        with transaction.atomic():
+            job.status = JobStatus.CANCELLED
+            job.save(update_fields=["status"])
+
+        serializer = ConversionJobSerializer(job)
+        return Response(
+            {"message": "Conversion job cancelled successfully.", "job": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
 class ConversionJobDownloadView(APIView):
     """
     GET /api/conversions/{id}/download/
@@ -190,7 +260,7 @@ class ConversionJobDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if job.status in (JobStatus.PENDING, JobStatus.PROCESSING):
+        if job.status in (JobStatus.PENDING, JobStatus.QUEUED, JobStatus.STARTED, JobStatus.PROCESSING, JobStatus.RETRYING):
             return Response(
                 {
                     "error": True,
@@ -251,6 +321,57 @@ class ConversionJobDownloadView(APIView):
                 {"error": True, "message": "File could not be read. Please try again."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class QueueStatusView(APIView):
+    """
+    GET /api/conversions/queue-status/ or GET /api/internal/queue-status/
+    Admin/staff-only endpoint returning non-sensitive Celery/Redis queue metrics.
+    """
+    permission_classes = [IsAdminUser]
+    throttle_classes = [QueueMonitorRateThrottle]
+
+    def get(self, request):
+        active_count = 0
+        reserved_count = 0
+        redis_online = False
+
+        try:
+            from config.celery import app as celery_app
+            i = celery_app.control.inspect(timeout=1.0)
+            active_dict = i.active() or {}
+            reserved_dict = i.reserved() or {}
+            active_count = sum(len(tasks) for tasks in active_dict.values())
+            reserved_count = sum(len(tasks) for tasks in reserved_dict.values())
+            redis_online = True
+        except Exception as exc:
+            logger.warning("Queue status inspect notice: Celery/Redis worker check failed or offline: %s", exc)
+
+        queued_jobs = ConversionJob.objects.filter(status__in=[JobStatus.QUEUED, JobStatus.PENDING]).count()
+        processing_jobs = ConversionJob.objects.filter(
+            status__in=[JobStatus.PROCESSING, JobStatus.STARTED, JobStatus.RETRYING]
+        ).count()
+        failed_jobs = ConversionJob.objects.filter(status=JobStatus.FAILED).count()
+        completed_jobs = ConversionJob.objects.filter(status=JobStatus.COMPLETED).count()
+        cancelled_jobs = ConversionJob.objects.filter(status=JobStatus.CANCELLED).count()
+
+        return Response(
+            {
+                "status": "healthy" if redis_online else "degraded",
+                "redis_online": redis_online,
+                "queue_depth": queued_jobs,
+                "active_tasks": active_count or processing_jobs,
+                "reserved_tasks": reserved_count,
+                "metrics": {
+                    "queued": queued_jobs,
+                    "processing": processing_jobs,
+                    "failed": failed_jobs,
+                    "completed": completed_jobs,
+                    "cancelled": cancelled_jobs,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class PdfUtilitiesView(APIView):
@@ -355,7 +476,7 @@ class PdfUtilitiesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        job = ConversionService.process_job(job)
+        job = ConversionService.dispatch_job(job)
         output = ConversionJobSerializer(job)
         http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
         return Response(output.data, status=http_status)
@@ -450,7 +571,7 @@ class OcrUtilitiesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        job = ConversionService.process_job(job)
+        job = ConversionService.dispatch_job(job)
         output = ConversionJobSerializer(job)
         http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
         return Response(output.data, status=http_status)
