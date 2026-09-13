@@ -21,6 +21,14 @@ class JobStatus(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class CleanupStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    IN_PROGRESS = "in_progress", "In Progress"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    NOT_REQUIRED = "not_required", "Not Required"
+
+
 class ConversionJob(models.Model):
     """
     Represents a single file conversion request.
@@ -85,6 +93,7 @@ class ConversionJob(models.Model):
         help_text="Size of the uploaded file in bytes. Stored for auditing.",
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
     started_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -152,6 +161,33 @@ class ConversionJob(models.Model):
         null=True,
         blank=True,
         help_text="When the output file or job metadata expires.",
+    )
+
+    # ── Lifecycle Cleanup Metadata ────────────────────────────────────────────
+    cleanup_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When file cleanup execution started.",
+    )
+    cleanup_completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When file cleanup execution completed.",
+    )
+    cleanup_status = models.CharField(
+        max_length=20,
+        choices=CleanupStatus.choices,
+        default=CleanupStatus.NOT_REQUIRED,
+        db_index=True,
+        help_text="Status of file cleanup lifecycle.",
+    )
+    cleanup_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of cleanup execution attempts.",
+    )
+    cleanup_error = models.TextField(
+        blank=True,
+        help_text="Diagnostic cleanup failure message if status is failed.",
     )
 
     # ── Celery & worker correlation ───────────────────────────────────────────
@@ -227,8 +263,13 @@ class ConversionJob(models.Model):
         verbose_name = "Conversion Job"
         verbose_name_plural = "Conversion Jobs"
         indexes = [
-            models.Index(fields=["session_key", "status"]),
-            models.Index(fields=["user", "status"]),
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["session_key", "created_at"]),
+            models.Index(fields=["user", "status", "created_at"]),
+            models.Index(fields=["session_key", "status", "created_at"]),
+            models.Index(fields=["status", "expires_at"]),
+            models.Index(fields=["cleanup_status", "expires_at"]),
+            models.Index(fields=["status", "last_heartbeat"]),
         ]
 
     def __str__(self) -> str:

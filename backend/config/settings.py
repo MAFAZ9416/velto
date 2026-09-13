@@ -85,14 +85,34 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 # ── Database ───────────────────────────────────────────────────────────────────
-# SQLite3 for development — switch to Neon PostgreSQL in production by setting
-# DATABASE_URL and using a package such as dj-database-url.
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+
+DJANGO_ENV = os.environ.get("DJANGO_ENV", "development").lower()
+ALLOW_SQLITE_FALLBACK = os.environ.get("ALLOW_SQLITE_FALLBACK", "true").lower() in ("true", "1", "t")
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True if "sslmode=require" in DATABASE_URL or DJANGO_ENV == "production" else False,
+        )
     }
-}
+else:
+    if DJANGO_ENV == "production" and not ALLOW_SQLITE_FALLBACK:
+        raise ImproperlyConfigured(
+            "DATABASE_URL environment variable is required in production environment."
+        )
+    # Default SQLite3 fallback for local development and testing
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 # ── Password validation ────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [

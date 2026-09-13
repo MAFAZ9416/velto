@@ -18,3 +18,9 @@ python-pptx>=1.0.0     # PPTX test fixture generation
 
 # Phase 4: Document conversion engines (TXT, HTML, Markdown)
 markdown>=3.4.0
+
+# Database & Object Storage
+psycopg2-binary>=2.9.0
+dj-database-url>=2.1.0
+boto3>=1.34.0
+
