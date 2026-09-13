@@ -187,4 +187,22 @@ TESTING = "test" in sys.argv or os.environ.get("TESTING", "False").lower() in ("
 CELERY_TASK_ALWAYS_EAGER = TESTING or (os.environ.get("CELERY_TASK_ALWAYS_EAGER", "False").lower() in ("true", "1", "t"))
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# ── Object Storage & Quota Settings ───────────────────────────────────────────
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local").lower()
+S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", None)
+S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "velto-storage")
+S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", "")
+S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "")
+
+S3_PRESIGNED_UPLOAD_EXPIRY = int(os.environ.get("S3_PRESIGNED_UPLOAD_EXPIRY", 900))
+S3_PRESIGNED_DOWNLOAD_EXPIRY = int(os.environ.get("S3_PRESIGNED_DOWNLOAD_EXPIRY", 900))
+S3_MULTIPART_THRESHOLD = int(os.environ.get("S3_MULTIPART_THRESHOLD", 52_428_800))  # 50 MB
+
+# Per-owner storage quota (500 MB default)
+STORAGE_QUOTA_BYTES = int(os.environ.get("STORAGE_QUOTA_BYTES", 524_288_000))
+# Retention period for completed output files and staging workspace (24 hours default)
+STORAGE_RETENTION_HOURS = int(os.environ.get("STORAGE_RETENTION_HOURS", 24))
+
+
 

@@ -1,5 +1,5 @@
 """
-URL patterns for the conversions app — Security Hardened & Job Processing Enabled.
+URL patterns for the conversions app — Security Hardened, Job Processing & Object Storage Enabled.
 """
 
 from django.urls import path
@@ -13,6 +13,9 @@ from apps.conversions.views import (
     PdfUtilitiesView,
     OcrUtilitiesView,
     SecurityDiagnosticsView,
+    PresignedUploadUrlView,
+    FinalizeUploadView,
+    PresignedDownloadUrlView,
 )
 
 app_name = "conversions"
@@ -26,6 +29,9 @@ urlpatterns = [
 
     # GET /api/conversions/queue-status/
     path("queue-status/", QueueStatusView.as_view(), name="queue-status"),
+
+    # POST /api/conversions/upload-url/
+    path("upload-url/", PresignedUploadUrlView.as_view(), name="upload-url"),
 
     # POST /api/conversions/pdf/utilities/
     path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
@@ -42,6 +48,12 @@ urlpatterns = [
 
     # POST /api/conversions/{job_id}/cancel/
     path("<uuid:job_id>/cancel/", ConversionJobCancelView.as_view(), name="job-cancel"),
+
+    # POST /api/conversions/{job_id}/finalize-upload/
+    path("<uuid:job_id>/finalize-upload/", FinalizeUploadView.as_view(), name="job-finalize-upload"),
+
+    # GET /api/conversions/{job_id}/download-url/
+    path("<uuid:job_id>/download-url/", PresignedDownloadUrlView.as_view(), name="job-download-url"),
 
     # GET /api/conversions/{job_id}/download/
     path("<uuid:job_id>/download/", ConversionJobDownloadView.as_view(), name="job-download"),

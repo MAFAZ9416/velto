@@ -1,11 +1,13 @@
 """
-ConversionService — orchestrates job creation, engine dispatch, download, and cleanup.
+ConversionService — orchestrates job creation, engine dispatch, download, object storage, and cleanup.
 
 Security-hardened service layer:
   - Validates MIME types, signatures, file sizes, and path containment.
   - Performs antivirus scanning before processing.
   - Creates isolated per-job temporary workspaces.
   - Sanitizes user filenames and protects output downloads.
+  - Integrates S3-compatible Object Storage with presigned upload & download flows.
+  - Enforces per-owner storage quotas.
 """
 
 import logging
@@ -14,7 +16,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -25,6 +27,10 @@ from apps.conversions.engines.base import ConversionError
 from apps.conversions.engines.registry import engine_registry
 from apps.conversions.formats import is_valid_conversion
 from apps.conversions.models import ConversionJob, JobStatus
+from apps.conversions.storage import (
+    get_storage_service,
+    get_active_storage_backend,
+)
 
 # Central Security Imports
 from apps.conversions.security import (
@@ -32,7 +38,9 @@ from apps.conversions.security import (
     OutputTooLarge,
     PathTraversalAttempt,
     check_job_timeout,
+    check_storage_quota,
     generate_internal_filename,
+    get_request_owner_identity,
     resolve_safe_path,
     sanitize_filename,
     scan_file_security,
@@ -157,6 +165,131 @@ class ConversionService:
 
         return str(manifest_path)
 
+    # ── Object Storage Presigned Upload Flow ─────────────────────────────────
+
+    @classmethod
+    def create_presigned_upload_session(
+        cls,
+        request,
+        *,
+        source_format: str,
+        target_format: str,
+        filename: str,
+        file_size_bytes: int,
+        options: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+        """
+        Validate quota & parameters, create a PENDING unfinalized job,
+        and generate a short-lived presigned upload URL payload.
+        """
+        if options is None:
+            options = {}
+
+        if not is_valid_conversion(source_format, target_format, options):
+            raise ConversionServiceError(
+                f"Unsupported conversion: {source_format} → {target_format}."
+            )
+
+        if file_size_bytes > MAX_SINGLE_FILE_SIZE:
+            raise FileTooLarge(
+                f"File '{filename}' size ({file_size_bytes // (1024*1024)} MB) "
+                f"exceeds maximum allowed size of {MAX_SINGLE_FILE_SIZE // (1024*1024)} MB."
+            )
+
+        # Enforce storage quota for the request owner
+        check_storage_quota(request, incoming_bytes=file_size_bytes)
+
+        user, session_key = get_request_owner_identity(request)
+        owner_ident = f"usr_{user.id}" if user else (session_key or "anonymous")
+
+        storage = get_storage_service()
+        job_uuid = uuid.uuid4().hex
+        object_key = storage.generate_object_key(owner_ident, job_uuid, "input", filename)
+
+        db_options = dict(options)
+        for pw_key in ("password", "user_password", "owner_password"):
+            if pw_key in db_options and db_options[pw_key]:
+                db_options[pw_key] = "[REDACTED]"
+
+        job = ConversionJob.objects.create(
+            id=job_uuid,
+            user=user,
+            session_key=session_key or "",
+            source_format=source_format,
+            target_format=target_format,
+            options=db_options,
+            status=JobStatus.PENDING,
+            original_filename=sanitize_filename(filename),
+            file_size_bytes=file_size_bytes,
+            storage_backend=get_active_storage_backend(),
+            input_storage_key=object_key,
+            is_finalized=False,
+        )
+
+        presigned_payload = storage.generate_presigned_upload_url(
+            object_key=object_key,
+            max_size=file_size_bytes,
+            expires_in=getattr(settings, "S3_PRESIGNED_UPLOAD_EXPIRY", 900),
+        )
+
+        return {
+            "job_id": str(job.id),
+            "upload_url": presigned_payload.get("url"),
+            "fields": presigned_payload.get("fields", {}),
+            "storage_key": object_key,
+            "expires_in": presigned_payload.get("expires_in", 900),
+            "max_file_size": file_size_bytes,
+            "backend": presigned_payload.get("backend", "local"),
+            "job": job,
+        }
+
+    @classmethod
+    def finalize_uploaded_job(cls, job: ConversionJob) -> ConversionJob:
+        """
+        Finalize a presigned upload: verify object existence in storage,
+        download to isolated workspace, execute security validations, mark finalized, and dispatch.
+        """
+        if job.is_finalized and job.status != JobStatus.PENDING:
+            logger.info("Job %s is already finalized.", job.id)
+            return job
+
+        if not job.input_storage_key:
+            raise ConversionServiceError("No storage key recorded for this conversion job.")
+
+        storage = get_storage_service(job.storage_backend)
+        if not storage.object_exists(job.input_storage_key):
+            raise ConversionServiceError("Uploaded object was not found in storage. Please upload before finalizing.")
+
+        workspace = cls._create_isolated_workspace(str(job.id))
+        safe_base = sanitize_filename(job.original_filename)
+        dest_filename = generate_internal_filename(safe_base)
+        local_dest = str(resolve_safe_path(workspace, dest_filename))
+
+        # Download object from storage adapter to local workspace for validation & engine execution
+        storage.download_file(job.input_storage_key, local_dest)
+
+        input_p = Path(local_dest)
+        obj_size = input_p.stat().st_size
+
+        if obj_size > MAX_SINGLE_FILE_SIZE:
+            cls.cleanup_job_files(job)
+            raise FileTooLarge(f"Uploaded object size ({obj_size} bytes) exceeds limit.")
+
+        # Central security checks
+        validate_mime_type(input_p, expected_format=job.source_format)
+        validate_file_signature(input_p, job.source_format)
+        scan_file_security(input_p)
+
+        with transaction.atomic():
+            job.is_finalized = True
+            job.input_path = local_dest
+            job.file_size_bytes = obj_size
+            job.status = JobStatus.QUEUED
+            job.save(update_fields=["is_finalized", "input_path", "file_size_bytes", "status"])
+
+        # Dispatch for background task execution
+        return cls.dispatch_job(job)
+
     # ── Job creation ───────────────────────────────────────────────────────────
 
     @classmethod
@@ -172,7 +305,7 @@ class ConversionService:
         user=None,
     ) -> ConversionJob:
         """
-        Validate input, stage uploaded file(s), and create a PENDING ConversionJob.
+        Validate input, stage uploaded file(s), copy to storage provider, and create ConversionJob.
         """
         if options is None:
             options = {}
@@ -200,12 +333,23 @@ class ConversionService:
         else:
             raise ConversionServiceError("No uploaded file provided.")
 
+        owner_ident = f"usr_{user.id}" if user else (session_key or "anonymous")
+        storage = get_storage_service()
+        input_key = storage.generate_object_key(owner_ident, job_uuid, "input", orig_filename)
+
+        # Upload staged input to storage adapter
+        try:
+            storage.upload_file(staged_path, input_key)
+        except Exception as exc:
+            logger.warning("Could not upload staged input to storage adapter: %s", exc)
+
         db_options = dict(options)
         for pw_key in ("password", "user_password", "owner_password"):
             if pw_key in db_options and db_options[pw_key]:
                 db_options[pw_key] = "[REDACTED]"
 
         job = ConversionJob.objects.create(
+            id=job_uuid,
             user=user,
             session_key=session_key or "",
             source_format=source_format,
@@ -215,15 +359,19 @@ class ConversionService:
             original_filename=orig_filename,
             file_size_bytes=total_bytes,
             input_path=staged_path,
+            storage_backend=get_active_storage_backend(),
+            input_storage_key=input_key,
+            is_finalized=True,
         )
         job._runtime_options = dict(options)
 
         logger.info(
-            "Created ConversionJob %s (%s→%s) input: %s",
+            "Created ConversionJob %s (%s→%s) input: %s (storage_key: %s)",
             job.id,
             source_format,
             target_format,
             staged_path,
+            input_key,
         )
         return job
 
@@ -233,10 +381,6 @@ class ConversionService:
     def dispatch_job(cls, job: ConversionJob) -> ConversionJob:
         """
         Dispatch the job for processing.
-
-        If CELERY_TASK_ALWAYS_EAGER is True (or during unit tests / fallback),
-        processes synchronously. Otherwise, schedules background execution
-        via transaction.on_commit().
         """
         from apps.conversions.tasks import process_conversion_job_task
 
@@ -274,7 +418,7 @@ class ConversionService:
     @classmethod
     def process_job(cls, job: ConversionJob) -> ConversionJob:
         """
-        Dispatch the job to the appropriate engine and update its status.
+        Dispatch the job to the appropriate engine, update status, and upload output to object storage.
         """
         start_time = time.time()
 
@@ -299,6 +443,20 @@ class ConversionService:
                 ),
             )
             return job
+
+        # Download input from object storage if local input_path missing
+        storage = get_storage_service(job.storage_backend)
+        if not job.input_path or not Path(job.input_path).exists():
+            if job.input_storage_key and storage.object_exists(job.input_storage_key):
+                workspace = cls._create_isolated_workspace(str(job.id))
+                safe_base = sanitize_filename(job.original_filename)
+                local_dest = str(resolve_safe_path(workspace, generate_internal_filename(safe_base)))
+                try:
+                    storage.download_file(job.input_storage_key, local_dest)
+                    job.input_path = local_dest
+                    job.save(update_fields=["input_path"])
+                except Exception as exc:
+                    logger.error("Failed downloading input object key '%s': %s", job.input_storage_key, exc)
 
         # ── Central Security Validations (MIME, Signature, Antivirus) ─────────
         try:
@@ -380,6 +538,14 @@ class ConversionService:
             )
             return job
 
+        # Upload output to storage adapter
+        owner_ident = f"usr_{job.user_id}" if job.user_id else (job.session_key or "anonymous")
+        output_storage_key = storage.generate_object_key(owner_ident, str(job.id), "output", output_filename)
+        try:
+            storage.upload_file(output_path, output_storage_key)
+        except Exception as exc:
+            logger.warning("Could not upload generated output to storage adapter for job %s: %s", job.id, exc)
+
         # ── Mark COMPLETED ──────────────────────────────────────────────────
         output_size = Path(output_path).stat().st_size
         updated_opts = dict(runtime_opts)
@@ -394,53 +560,103 @@ class ConversionService:
             job.output_path = output_path
             job.output_filename = output_filename
             job.output_size_bytes = output_size
+            job.output_storage_key = output_storage_key
             job.save(update_fields=[
                 "status", "completed_at",
                 "output_path", "output_filename", "output_size_bytes",
-                "options",
+                "output_storage_key", "options",
             ])
 
-        # Clean up input file
+        # Clean up local input file
         cls._safe_delete_file(job.input_path, label="input")
 
         logger.info(
-            "process_job: job %s COMPLETED. Output: %s (%d bytes)",
+            "process_job: job %s COMPLETED. Output: %s (%d bytes, key: %s)",
             job.id,
             output_path,
             output_size,
+            output_storage_key,
         )
         return job
 
-    # ── Download helper ────────────────────────────────────────────────────────
+    # ── Download helpers ───────────────────────────────────────────────────────
+
+    @classmethod
+    def get_job_download_url(cls, job: ConversionJob, expires_in: int = 900) -> Optional[str]:
+        """
+        Return a short-lived presigned download URL for a completed output object.
+        """
+        if job.status != JobStatus.COMPLETED:
+            return None
+
+        storage = get_storage_service(job.storage_backend)
+
+        if job.output_storage_key and storage.object_exists(job.output_storage_key):
+            try:
+                return storage.generate_presigned_download_url(
+                    job.output_storage_key,
+                    filename=job.output_filename,
+                    expires_in=expires_in,
+                )
+            except Exception as exc:
+                logger.error("Error generating presigned download URL for job %s: %s", job.id, exc)
+
+        # Fallback to local output file check
+        if job.output_path and Path(job.output_path).exists():
+            from django.urls import reverse
+            try:
+                return reverse("conversions:job-download", kwargs={"job_id": job.id})
+            except Exception:
+                pass
+
+        return None
 
     @classmethod
     def get_job_output(cls, job: ConversionJob) -> Optional[str]:
         """
-        Return the absolute output file path for a completed job after validating containment.
+        Return local output file path for a completed job, downloading from storage if necessary.
         """
-        if job.status != JobStatus.COMPLETED or not job.output_path:
+        if job.status != JobStatus.COMPLETED:
             return None
 
-        out_path = Path(job.output_path)
-        if not out_path.exists():
-            logger.warning("get_job_output: output file missing for job %s: %s", job.id, job.output_path)
-            return None
+        # Check local path first
+        if job.output_path and Path(job.output_path).exists():
+            try:
+                resolve_safe_path(cls._get_temp_dir(), job.output_path)
+                return job.output_path
+            except PathTraversalAttempt:
+                return None
 
-        try:
-            resolve_safe_path(cls._get_temp_dir(), out_path)
-        except PathTraversalAttempt:
-            logger.error("Security alert: job %s output path outside temp dir: %s", job.id, job.output_path)
-            return None
+        # Download from storage adapter if missing locally
+        storage = get_storage_service(job.storage_backend)
+        if job.output_storage_key and storage.object_exists(job.output_storage_key):
+            workspace = cls._create_isolated_workspace(str(job.id))
+            output_filename = job.output_filename or f"converted_{job.id}.{job.target_format}"
+            local_dest = str(resolve_safe_path(workspace, generate_internal_filename(output_filename)))
+            try:
+                storage.download_file(job.output_storage_key, local_dest)
+                job.output_path = local_dest
+                job.save(update_fields=["output_path"])
+                return local_dest
+            except Exception as exc:
+                logger.error("Failed downloading output object key '%s': %s", job.output_storage_key, exc)
 
-        return str(out_path)
+        return None
 
     # ── Cleanup ────────────────────────────────────────────────────────────────
 
     @classmethod
     def cleanup_job_files(cls, job: ConversionJob) -> None:
         """
-        Delete both input and output staged files and workspace for a job.
+        Delete both input and output staged files, storage objects, and local workspace for a job.
         """
+        storage = get_storage_service(job.storage_backend)
+
+        if job.input_storage_key:
+            storage.delete_object(job.input_storage_key)
+        if job.output_storage_key:
+            storage.delete_object(job.output_storage_key)
+
         if job.input_path:
             cls._safe_delete_file(job.input_path, label="input")
         if job.output_path:
@@ -462,10 +678,7 @@ class ConversionService:
             job.completed_at = timezone.now()
             job.save(update_fields=["status", "error_message", "completed_at"])
 
-        if job.input_path:
-            cls._safe_delete_file(job.input_path, label="input")
-        if output_path:
-            cls._safe_delete_file(output_path, label="partial output")
+        cls.cleanup_job_files(job)
 
     @staticmethod
     def _safe_delete_file(path: str, label: str = "file") -> None:
@@ -488,7 +701,6 @@ class ConversionService:
                     except Exception:
                         pass
                 p.unlink()
-                # Check if parent workspace directory is now empty and remove if so
                 if p.parent.name.startswith("job_") and not any(p.parent.iterdir()):
                     try:
                         p.parent.rmdir()

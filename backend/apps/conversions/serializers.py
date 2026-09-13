@@ -68,6 +68,8 @@ class ConversionJobSerializer(serializers.ModelSerializer):
             "max_retries",
             "celery_task_id",
             "worker_name",
+            "storage_backend",
+            "is_finalized",
             "output_filename",
             "output_size_bytes",
             "download_url",
@@ -235,4 +237,36 @@ class ConversionJobCreateSerializer(serializers.Serializer):
                     )
 
         return attrs
+
+
+class PresignedUploadRequestSerializer(serializers.Serializer):
+    """
+    Write serializer for POST /api/conversions/upload-url/.
+    """
+    source_format = serializers.ChoiceField(choices=FORMAT_CHOICES, required=True)
+    target_format = serializers.ChoiceField(choices=FORMAT_CHOICES, required=True)
+    filename = serializers.CharField(max_length=255, required=True)
+    file_size_bytes = serializers.IntegerField(min_value=1, required=True)
+    options = serializers.JSONField(required=False, default=dict)
+
+    def validate_options(self, value):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except Exception as exc:
+                raise serializers.ValidationError("Invalid JSON string in options field.") from exc
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Options must be a valid JSON dictionary.")
+        return value
+
+    def validate(self, attrs):
+        source_format = attrs.get("source_format")
+        target_format = attrs.get("target_format")
+        options = attrs.get("options", {})
+        if not is_valid_conversion(source_format, target_format, options):
+            raise serializers.ValidationError(
+                {"target_format": f"Converting from '{source_format}' to '{target_format}' is not supported."}
+            )
+        return attrs
+
 

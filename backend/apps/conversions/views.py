@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 
+from django.conf import settings
 from django.db import transaction
 from django.http import FileResponse
 from django.utils import timezone
@@ -575,3 +576,151 @@ class OcrUtilitiesView(APIView):
         output = ConversionJobSerializer(job)
         http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
         return Response(output.data, status=http_status)
+
+
+class PresignedUploadUrlView(APIView):
+    """
+    POST /api/conversions/upload-url/ or POST /api/jobs/upload-url/
+    Creates a pending upload session and generates a short-lived presigned upload URL.
+    """
+    throttle_classes = [UploadRateThrottle]
+
+    def post(self, request):
+        from apps.conversions.serializers import PresignedUploadRequestSerializer
+
+        serializer = PresignedUploadRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = serializer.validated_data
+        _ensure_session_key(request)
+
+        try:
+            session_data = ConversionService.create_presigned_upload_session(
+                request,
+                source_format=validated["source_format"],
+                target_format=validated["target_format"],
+                filename=validated["filename"],
+                file_size_bytes=validated["file_size_bytes"],
+                options=validated.get("options", {}),
+            )
+            return Response(
+                {
+                    "job_id": session_data["job_id"],
+                    "upload_url": session_data["upload_url"],
+                    "fields": session_data["fields"],
+                    "storage_key": session_data["storage_key"],
+                    "expires_in": session_data["expires_in"],
+                    "max_file_size": session_data["max_file_size"],
+                    "backend": session_data["backend"],
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception as exc:
+            logger.warning("Error creating presigned upload session: %s", exc)
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class FinalizeUploadView(APIView):
+    """
+    POST /api/conversions/{id}/finalize-upload/ or POST /api/jobs/{id}/finalize-upload/
+    Verifies object existence in storage, performs security checks, marks finalized, and dispatches task.
+    """
+    def post(self, request, job_id):
+        jobs = filter_jobs_for_request(request)
+        try:
+            job = jobs.get(pk=job_id)
+            check_job_ownership(request, job)
+        except (ConversionJob.DoesNotExist, ValueError):
+            return Response(
+                {"error": True, "message": "Conversion job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            job = ConversionService.finalize_uploaded_job(job)
+            serializer = ConversionJobSerializer(job)
+            http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
+            return Response(serializer.data, status=http_status)
+        except Exception as exc:
+            logger.warning("Error finalizing upload for job %s: %s", job_id, exc)
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class PresignedDownloadUrlView(APIView):
+    """
+    GET /api/conversions/{id}/download-url/ or GET /api/jobs/{id}/download-url/
+    Returns a short-lived presigned download URL for a completed conversion job.
+    """
+    throttle_classes = [DownloadRateThrottle]
+
+    def get(self, request, job_id):
+        jobs = filter_jobs_for_request(request)
+        try:
+            job = jobs.get(pk=job_id)
+            check_job_ownership(request, job)
+        except (ConversionJob.DoesNotExist, ValueError):
+            return Response(
+                {"error": True, "message": "Conversion job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if job.status in (JobStatus.PENDING, JobStatus.QUEUED, JobStatus.STARTED, JobStatus.PROCESSING, JobStatus.RETRYING):
+            return Response(
+                {
+                    "error": True,
+                    "message": "Conversion is still in progress. Please try again shortly.",
+                    "status": job.status,
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        if job.status == JobStatus.FAILED:
+            return Response(
+                {
+                    "error": True,
+                    "message": "Conversion failed. No output file is available.",
+                    "status": job.status,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if job.status == JobStatus.CANCELLED:
+            return Response(
+                {"error": True, "message": "This conversion job was cancelled."},
+                status=status.HTTP_410_GONE,
+            )
+
+        download_url = ConversionService.get_job_download_url(job)
+        if not download_url:
+            return Response(
+                {"error": True, "message": "The converted file is no longer available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "job_id": str(job.id),
+                "download_url": download_url,
+                "expires_in": getattr(settings, "S3_PRESIGNED_DOWNLOAD_EXPIRY", 900),
+                "filename": job.output_filename or f"converted_{job.id}.{job.target_format}",
+            },
+            status=status.HTTP_200_OK,
+        )
+

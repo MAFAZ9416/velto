@@ -55,6 +55,7 @@ from apps.conversions.security.antivirus import scan_file_security
 from apps.conversions.security.sandbox import run_sandboxed_command
 from apps.conversions.security.archive_limits import validate_zip_archive_security
 from apps.conversions.security.abuse import check_concurrent_jobs, check_job_timeout
+from apps.conversions.security.quotas import check_storage_quota, get_owner_storage_usage
 from apps.conversions.security.diagnostics import get_security_diagnostics
 from apps.conversions.security.rate_limits import (
     DownloadRateThrottle,
@@ -99,6 +100,8 @@ __all__ = [
     "validate_zip_archive_security",
     "check_concurrent_jobs",
     "check_job_timeout",
+    "check_storage_quota",
+    "get_owner_storage_usage",
     "get_security_diagnostics",
     "MAX_UPLOAD_SIZE",
     "MAX_SINGLE_FILE_SIZE",

@@ -173,6 +173,27 @@ class ConversionJob(models.Model):
         help_text="Last active heartbeat timestamp from worker.",
     )
 
+    # ── Object Storage metadata ───────────────────────────────────────────────
+    storage_backend = models.CharField(
+        max_length=32,
+        default="local",
+        help_text="Storage provider backend used ('local', 's3').",
+    )
+    input_storage_key = models.CharField(
+        max_length=1024,
+        blank=True,
+        help_text="Object storage key for the staged input file.",
+    )
+    output_storage_key = models.CharField(
+        max_length=1024,
+        blank=True,
+        help_text="Object storage key for the generated output file.",
+    )
+    is_finalized = models.BooleanField(
+        default=True,
+        help_text="False for pending direct presigned upload sessions until finalization.",
+    )
+
     # ── File-path metadata (never store file bytes here) ──────────────────────
     input_path = models.CharField(
         max_length=1024,
