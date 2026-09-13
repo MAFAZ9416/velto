@@ -150,13 +150,13 @@ class ConversionService:
         """
         Validate input, stage uploaded file(s), and create a PENDING ConversionJob.
         """
-        if not is_valid_conversion(source_format, target_format):
+        if options is None:
+            options = {}
+
+        if not is_valid_conversion(source_format, target_format, options):
             raise ConversionServiceError(
                 f"Unsupported conversion: {source_format} → {target_format}."
             )
-
-        if options is None:
-            options = {}
 
         if uploaded_files and len(uploaded_files) > 1:
             staged_path = cls.stage_uploaded_files(uploaded_files, source_format)
@@ -211,7 +211,9 @@ class ConversionService:
             return job
 
         # ── Resolve engine ──────────────────────────────────────────────────
-        engine_cls = engine_registry.get(job.source_format, job.target_format)
+        op = (job.options or {}).get("operation")
+        engine_cls = engine_registry.get(job.source_format, job.target_format, operation=op)
+
         if engine_cls is None:
             cls._fail_job(
                 job,
@@ -222,6 +224,7 @@ class ConversionService:
                 ),
             )
             return job
+
 
         # ── Confirm input file exists ───────────────────────────────────────
         if not job.input_path or not Path(job.input_path).exists():

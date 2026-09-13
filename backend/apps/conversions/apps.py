@@ -45,6 +45,12 @@ class ConversionsConfig(AppConfig):
             MarkdownToDocxEngine,
         )
 
+        from apps.conversions.engines.pdf_utility_engine import (
+            PdfMergeEngine,
+            PdfSplitEngine,
+            PdfExtractPagesEngine,
+        )
+
         engine_registry.register(PdfToDocxEngine)
         engine_registry.register(PdfToJpgEngine)
         engine_registry.register(PdfToPngEngine)
@@ -70,6 +76,11 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(HtmlToDocxEngine)
         engine_registry.register(MarkdownToPdfEngine)
         engine_registry.register(MarkdownToDocxEngine)
+
+        # Register PDF Utility engines
+        engine_registry.register(PdfMergeEngine)
+        engine_registry.register(PdfSplitEngine)
+        engine_registry.register(PdfExtractPagesEngine)
 
         # Register Image engines
         engine_registry.register(JpgToPngEngine)

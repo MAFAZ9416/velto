@@ -268,3 +268,73 @@ class ConversionJobDownloadView(APIView):
                 {"error": True, "message": "File could not be read. Please try again."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class PdfUtilitiesView(APIView):
+    """
+    POST /api/v1/pdf/utilities/ — Dedicated API endpoint for PDF Utility operations.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        operation = request.data.get("operation")
+        if operation not in ("pdf_merge", "pdf_split", "pdf_extract_pages"):
+            return Response(
+                {"error": True, "message": "unsupported_operation: Invalid or missing PDF utility operation. Supported: pdf_merge, pdf_split, pdf_extract_pages."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_format = "zip" if operation == "pdf_split" else "pdf"
+        file_single = request.FILES.get("file")
+        file_list = request.FILES.getlist("files") or request.FILES.getlist("file[]") or request.FILES.getlist("files[]")
+
+        if not file_single and not file_list:
+            return Response(
+                {"error": True, "message": "invalid_pdf: At least one uploaded PDF file ('file' or 'files') is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        options = {"operation": operation}
+        if "split_mode" in request.data:
+            options["split_mode"] = request.data.get("split_mode")
+        if "ranges" in request.data:
+            ranges_val = request.data.get("ranges")
+            if isinstance(ranges_val, str) and (ranges_val.startswith("[") or "," in ranges_val):
+                try:
+                    import json
+                    options["ranges"] = json.loads(ranges_val)
+                except Exception:
+                    options["ranges"] = [r.strip() for r in ranges_val.split(",") if r.strip()]
+            else:
+                options["ranges"] = ranges_val if isinstance(ranges_val, list) else [ranges_val]
+        if "pages_per_file" in request.data:
+            try:
+                options["pages_per_file"] = int(request.data.get("pages_per_file"))
+            except ValueError:
+                pass
+        if "pages" in request.data:
+            options["pages"] = request.data.get("pages")
+
+        session_key = _ensure_session_key(request)
+
+        try:
+            job = ConversionService.create_job(
+                source_format="pdf",
+                target_format=target_format,
+                uploaded_file=file_single if not file_list else None,
+                uploaded_files=file_list if file_list else None,
+                options=options,
+                session_key=session_key,
+                user=request.user if request.user.is_authenticated else None,
+            )
+        except ConversionServiceError as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        job = ConversionService.process_job(job)
+        output = ConversionJobSerializer(job)
+        http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
+        return Response(output.data, status=http_status)
+

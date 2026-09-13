@@ -8,6 +8,7 @@ from apps.conversions.views import (
     ConversionJobListCreateView,
     ConversionJobDetailView,
     ConversionJobDownloadView,
+    PdfUtilitiesView,
 )
 
 app_name = "conversions"
@@ -15,6 +16,9 @@ app_name = "conversions"
 urlpatterns = [
     # GET /api/conversions/supported-formats/
     path("supported-formats/", SupportedFormatsView.as_view(), name="supported-formats"),
+
+    # POST /api/conversions/pdf-utilities/ or /api/conversions/pdf/utilities/
+    path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
 
     # GET  /api/conversions/
     # POST /api/conversions/
@@ -26,3 +30,4 @@ urlpatterns = [
     # GET /api/conversions/{job_id}/download/
     path("<uuid:job_id>/download/", ConversionJobDownloadView.as_view(), name="job-download"),
 ]
+

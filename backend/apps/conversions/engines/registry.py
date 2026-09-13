@@ -49,19 +49,24 @@ class EngineRegistry:
 
     def register(self, engine_cls: Type[BaseConversionEngine]) -> None:
         """
-        Register an engine class for its declared source/target pair.
+        Register an engine class for its declared source/target pair (and optional operation).
 
         Raises
         ------
         TypeError
             If engine_cls is not a subclass of BaseConversionEngine.
         ValueError
-            If another engine is already registered for the same pair.
+            If another engine is already registered for the same key.
         """
         if not (isinstance(engine_cls, type) and issubclass(engine_cls, BaseConversionEngine)):
             raise TypeError(f"{engine_cls!r} is not a subclass of BaseConversionEngine.")
 
-        key = (engine_cls.source_format, engine_cls.target_format)
+        op = getattr(engine_cls, "operation", None)
+        if op:
+            key = (engine_cls.source_format, engine_cls.target_format, op)
+        else:
+            key = (engine_cls.source_format, engine_cls.target_format)
+
         if key in self._registry:
             existing = self._registry[key]
             raise ValueError(
@@ -70,15 +75,18 @@ class EngineRegistry:
             )
 
         self._registry[key] = engine_cls
-        logger.info("Registered engine: %s for %s → %s", engine_cls.__name__, *key)
+        logger.info("Registered engine: %s for %s", engine_cls.__name__, key)
 
     def get(
-        self, source_format: str, target_format: str
+        self, source_format: str, target_format: str, operation: Optional[str] = None
     ) -> Optional[Type[BaseConversionEngine]]:
         """
-        Return the engine class for the given pair, or None if not registered.
-        None means no engine is available yet — the job will stay pending.
+        Return the engine class for the given pair (and optional operation), or None if not registered.
         """
+        if operation:
+            engine = self._registry.get((source_format, target_format, operation))
+            if engine:
+                return engine
         return self._registry.get((source_format, target_format))
 
     def available_pairs(self) -> list[tuple[str, str]]:

@@ -149,22 +149,18 @@ SUPPORTED_PAIRS: list[tuple[str, str]] = [
     (FORMAT_MD, FORMAT_DOCX),
 ]
 
-
-# ── Derived helpers ────────────────────────────────────────────────────────────
-
-# Set of all source formats that appear in at least one pair
-VALID_SOURCE_FORMATS: set[str] = {src for src, _ in SUPPORTED_PAIRS}
-
-# Set of all target formats that appear in at least one pair
-VALID_TARGET_FORMATS: set[str] = {tgt for _, tgt in SUPPORTED_PAIRS}
-
-# Fast O(1) membership test
 SUPPORTED_PAIRS_SET: set[tuple[str, str]] = set(SUPPORTED_PAIRS)
 
 
-def is_valid_conversion(source_format: str, target_format: str) -> bool:
-    """Return True if the given source→target pair is supported."""
-    return (source_format, target_format) in SUPPORTED_PAIRS_SET
+def is_valid_conversion(source_format: str, target_format: str, options: dict | None = None) -> bool:
+    """Return True if the given source→target pair (and optional operation) is supported."""
+    if (source_format, target_format) in SUPPORTED_PAIRS_SET:
+        return True
+    if options and isinstance(options, dict):
+        op = options.get("operation")
+        if source_format == "pdf" and op in ("pdf_merge", "pdf_split", "pdf_extract_pages"):
+            return True
+    return False
 
 
 def get_supported_formats_response() -> list[dict]:

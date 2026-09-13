@@ -424,10 +424,15 @@ def validate_zip_archive(zip_path: str, expected_count: int, expected_ext: str) 
                     raise ConversionError(
                         f"ZIP archive contains unexpected file extension: {fname} (expected {ext})"
                     )
-                # Verify that every image inside the ZIP can be opened cleanly
-                img_bytes = zf.read(fname)
-                with Image.open(io.BytesIO(img_bytes)) as img:
-                    img.verify()
+                content_bytes = zf.read(fname)
+                if ext == ".pdf":
+                    import fitz
+                    with fitz.open(stream=content_bytes, filetype="pdf") as pdf_doc:
+                        if pdf_doc.is_encrypted or len(pdf_doc) == 0:
+                            raise ConversionError(f"Corrupted PDF found inside ZIP: {fname}")
+                elif ext in (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"):
+                    with Image.open(io.BytesIO(content_bytes)) as img:
+                        img.verify()
     except ConversionError:
         raise
     except Exception as exc:
@@ -570,5 +575,116 @@ def validate_md_signature(path: str) -> None:
         raise ConversionError("The uploaded Markdown file does not exist.")
     if p.stat().st_size == 0:
         raise ConversionError("Input file is empty (0 bytes).")
+
+
+# ── PDF Utility Safety Limits ────────────────────────────────────────────────
+MAX_PDF_FILE_SIZE = 52_428_800        # 50 MB
+MAX_PDF_TOTAL_INPUT_BYTES = 209_715_200 # 200 MB
+MAX_PDF_PAGE_COUNT = 1000            # 1,000 pages per file
+MAX_PDF_TOTAL_PAGES = 2000           # 2,000 pages across all input files
+MAX_PDF_OUTPUT_SIZE = 104_857_600    # 100 MB
+MAX_PDF_SPLIT_OUTPUTS = 500          # 500 max split outputs
+
+
+def validate_pdf_utility_input(
+    paths: str | list[str] | tuple[str, ...],
+    min_files: int = 1,
+    max_files: int = 100,
+    session_dir: str | None = None,
+) -> list["fitz.Document"]:
+    """
+    Validate input PDF files for Phase 5A operations.
+
+    Checks:
+    - Minimum and maximum file count.
+    - File existence, regular file type, and workspace containment if session_dir is given.
+    - File size <= MAX_PDF_FILE_SIZE.
+    - Total input size across all files <= MAX_PDF_TOTAL_INPUT_BYTES.
+    - Valid PDF header magic bytes.
+    - Can be opened by PyMuPDF and is unencrypted.
+    - Single page count <= MAX_PDF_PAGE_COUNT.
+    - Total pages across all inputs <= MAX_PDF_TOTAL_PAGES.
+
+    Returns
+    -------
+    list[fitz.Document]
+        List of opened PyMuPDF Document objects. Caller MUST close all documents.
+    """
+    import fitz
+
+    if isinstance(paths, str):
+        path_list = [paths]
+    else:
+        path_list = list(paths)
+
+    if len(path_list) < min_files:
+        raise ConversionError(f"invalid_pdf: Operation requires at least {min_files} PDF file(s).")
+    if len(path_list) > max_files:
+        raise ConversionError(f"invalid_pdf: Operation accepts at most {max_files} PDF file(s).")
+
+    total_bytes = 0
+    total_pages = 0
+    docs = []
+
+    try:
+        for p_str in path_list:
+            p = Path(p_str)
+            if not p.exists() or not p.is_file():
+                raise ConversionError(f"invalid_pdf: Input file '{p.name}' does not exist or is not a regular file.")
+
+            if session_dir:
+                resolved_session = Path(session_dir).resolve()
+                resolved_file = p.resolve()
+                try:
+                    resolved_file.relative_to(resolved_session)
+                except ValueError:
+                    raise ConversionError(f"invalid_pdf: Input file '{p.name}' is outside the authorized session directory.")
+
+            file_size = p.stat().st_size
+            if file_size == 0:
+                raise ConversionError(f"invalid_pdf: Input file '{p.name}' is empty (0 bytes).")
+            if file_size > MAX_PDF_FILE_SIZE:
+                raise ConversionError(f"file_size_exceeded: File '{p.name}' size exceeds maximum limit of {MAX_PDF_FILE_SIZE // (1024*1024)} MB.")
+
+            total_bytes += file_size
+            if total_bytes > MAX_PDF_TOTAL_INPUT_BYTES:
+                raise ConversionError(f"file_size_exceeded: Total input size across all files exceeds limit of {MAX_PDF_TOTAL_INPUT_BYTES // (1024*1024)} MB.")
+
+            # Signature check
+            validate_pdf_signature(p_str)
+
+            # Open via PyMuPDF
+            try:
+                doc = fitz.open(p_str)
+            except Exception as exc:
+                raise ConversionError(f"corrupted_pdf: File '{p.name}' is corrupted or malformed.") from exc
+
+            if doc.is_encrypted:
+                doc.close()
+                raise ConversionError(f"encrypted_pdf: File '{p.name}' is password protected.")
+
+            page_count = len(doc)
+            if page_count < 1:
+                doc.close()
+                raise ConversionError(f"corrupted_pdf: File '{p.name}' contains no readable pages.")
+            if page_count > MAX_PDF_PAGE_COUNT:
+                doc.close()
+                raise ConversionError(f"page_count_exceeded: File '{p.name}' page count ({page_count}) exceeds limit of {MAX_PDF_PAGE_COUNT}.")
+
+            total_pages += page_count
+            if total_pages > MAX_PDF_TOTAL_PAGES:
+                doc.close()
+                raise ConversionError(f"total_pages_exceeded: Total pages across input files ({total_pages}) exceeds limit of {MAX_PDF_TOTAL_PAGES}.")
+
+            docs.append(doc)
+        return docs
+    except Exception:
+        for d in docs:
+            try:
+                d.close()
+            except Exception:
+                pass
+        raise
+
 
 
