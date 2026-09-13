@@ -286,9 +286,75 @@ def validate_output_file(path: str) -> None:
     logger.debug("Output file validated: %s (%d bytes)", path, size)
 
 
-def validate_image_file(path: str, expected_format: str = "JPEG") -> None:
+def validate_image_signature(
+    path: str,
+    allowed_formats: list[str] | set[str] | None = None,
+    allow_animated: bool = False,
+) -> None:
     """
-    Verify that `path` is a valid, readable image of expected_format.
+    Verify that the file at `path` is a valid, readable image.
+
+    Checks:
+    - File exists and is non-empty.
+    - Fits within maximum pixel safety bounds (80 Megapixels).
+    - Format is in `allowed_formats` if specified.
+    - Rejects animated multi-frame images if allow_animated is False.
+
+    Raises
+    ------
+    ConversionError
+        If validation fails or file is not a valid image.
+    """
+    p = Path(path)
+
+    if not p.exists() or not p.is_file():
+        raise ConversionError("The uploaded image file does not exist.")
+
+    if p.stat().st_size == 0:
+        raise ConversionError("Input file is empty (0 bytes).")
+
+    try:
+        from PIL import Image, ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
+        Image.MAX_IMAGE_PIXELS = 80_000_000
+
+        with Image.open(path) as img:
+            fmt = (img.format or "").upper()
+            if allowed_formats:
+                allowed_upper = {f.upper() for f in allowed_formats}
+                if "JPG" in allowed_upper:
+                    allowed_upper.add("JPEG")
+                if fmt not in allowed_upper:
+                    raise ConversionError(
+                        f"The uploaded file is a {fmt} image, which does not match "
+                        f"the expected format ({', '.join(allowed_upper)})."
+                    )
+
+            if not allow_animated and getattr(img, "is_animated", False):
+                n_frames = getattr(img, "n_frames", 1)
+                if n_frames > 1:
+                    raise ConversionError(
+                        "Animated images are not supported. Please upload a single-frame static image."
+                    )
+
+            img.verify()
+    except ConversionError:
+        raise
+    except Image.DecompressionBombError as exc:
+        logger.warning("Image decompression bomb detected for %s: %s", path, exc)
+        raise ConversionError(
+            "The image dimensions exceed maximum safety limits (80 Megapixels)."
+        ) from exc
+    except Exception as exc:
+        logger.warning("Image signature validation failed for %s: %s", path, exc)
+        raise ConversionError(
+            "The uploaded file does not appear to be a valid image."
+        ) from exc
+
+
+def validate_image_file(path: str, expected_format: str | None = "JPEG") -> None:
+    """
+    Verify that `path` is a valid, readable output image of expected_format.
 
     Raises
     ------
@@ -297,9 +363,26 @@ def validate_image_file(path: str, expected_format: str = "JPEG") -> None:
     """
     validate_output_file(path)
     try:
-        from PIL import Image
+        from PIL import Image, ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
+        Image.MAX_IMAGE_PIXELS = 80_000_000
+
         with Image.open(path) as img:
+            if expected_format:
+                fmt = (img.format or "").upper()
+                exp = expected_format.upper()
+                if exp in ("JPG", "JPEG"):
+                    exp_set = {"JPG", "JPEG"}
+                else:
+                    exp_set = {exp}
+
+                if fmt not in exp_set:
+                    raise ConversionError(
+                        f"Generated image format '{fmt}' does not match expected format '{expected_format}'."
+                    )
             img.verify()
+    except ConversionError:
+        raise
     except Exception as exc:
         logger.warning("Image validation failed for %s: %s", path, exc)
         raise ConversionError(

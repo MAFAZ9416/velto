@@ -21,6 +21,11 @@ FORMAT_PPTX = "pptx"
 FORMAT_JPG = "jpg"
 FORMAT_PNG = "png"
 FORMAT_CSV = "csv"
+FORMAT_WEBP = "webp"
+FORMAT_BMP = "bmp"
+FORMAT_TIFF = "tiff"
+FORMAT_GIF = "gif"
+FORMAT_ZIP = "zip"
 
 # ── Human-readable labels ──────────────────────────────────────────────────────
 FORMAT_LABELS = {
@@ -31,6 +36,11 @@ FORMAT_LABELS = {
     FORMAT_JPG: "JPG Image",
     FORMAT_PNG: "PNG Image",
     FORMAT_CSV: "CSV Document",
+    FORMAT_WEBP: "WebP Image",
+    FORMAT_BMP: "BMP Image",
+    FORMAT_TIFF: "TIFF Image",
+    FORMAT_GIF: "GIF Image",
+    FORMAT_ZIP: "ZIP Archive",
 }
 
 # ── Django field choices ───────────────────────────────────────────────────────
@@ -52,9 +62,14 @@ ALLOWED_MIME_TYPES: dict[str, list[str]] = {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.ms-powerpoint",
     ],
-    FORMAT_JPG: ["image/jpeg"],
+    FORMAT_JPG: ["image/jpeg", "image/pjpeg"],
     FORMAT_PNG: ["image/png"],
     FORMAT_CSV: ["text/csv", "text/plain", "application/csv"],
+    FORMAT_WEBP: ["image/webp"],
+    FORMAT_BMP: ["image/bmp", "image/x-ms-bmp"],
+    FORMAT_TIFF: ["image/tiff"],
+    FORMAT_GIF: ["image/gif"],
+    FORMAT_ZIP: ["application/zip", "application/x-zip-compressed"],
 }
 
 # ── Allowed file extensions per source format ──────────────────────────────────
@@ -66,6 +81,11 @@ ALLOWED_EXTENSIONS: dict[str, list[str]] = {
     FORMAT_JPG: [".jpg", ".jpeg"],
     FORMAT_PNG: [".png"],
     FORMAT_CSV: [".csv"],
+    FORMAT_WEBP: [".webp"],
+    FORMAT_BMP: [".bmp"],
+    FORMAT_TIFF: [".tiff", ".tif"],
+    FORMAT_GIF: [".gif"],
+    FORMAT_ZIP: [".zip"],
 }
 
 # ── Valid conversion pairs (source_format, target_format) ─────────────────────
@@ -91,6 +111,24 @@ SUPPORTED_PAIRS: list[tuple[str, str]] = [
     (FORMAT_CSV, FORMAT_PNG),
     (FORMAT_JPG, FORMAT_PDF),
     (FORMAT_PNG, FORMAT_PDF),
+    (FORMAT_JPG, FORMAT_PNG),
+    (FORMAT_PNG, FORMAT_JPG),
+    (FORMAT_JPG, FORMAT_WEBP),
+    (FORMAT_PNG, FORMAT_WEBP),
+    (FORMAT_WEBP, FORMAT_JPG),
+    (FORMAT_WEBP, FORMAT_PNG),
+    (FORMAT_BMP, FORMAT_PNG),
+    (FORMAT_BMP, FORMAT_JPG),
+    (FORMAT_TIFF, FORMAT_PNG),
+    (FORMAT_TIFF, FORMAT_JPG),
+    (FORMAT_GIF, FORMAT_PNG),
+    (FORMAT_GIF, FORMAT_JPG),
+    (FORMAT_JPG, FORMAT_JPG),
+    (FORMAT_PNG, FORMAT_PNG),
+    (FORMAT_WEBP, FORMAT_WEBP),
+    (FORMAT_JPG, FORMAT_ZIP),
+    (FORMAT_PNG, FORMAT_ZIP),
+    (FORMAT_WEBP, FORMAT_ZIP),
 ]
 
 
@@ -124,3 +162,4 @@ def get_supported_formats_response() -> list[dict]:
         }
         for src, tgt in SUPPORTED_PAIRS
     ]
+

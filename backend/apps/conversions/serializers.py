@@ -19,6 +19,8 @@ from apps.conversions.models import ConversionJob
 
 # ── Output serializer ──────────────────────────────────────────────────────────
 
+import json
+
 class ConversionJobSerializer(serializers.ModelSerializer):
     """
     Read serializer for ConversionJob — used in list, detail, and POST responses.
@@ -27,6 +29,7 @@ class ConversionJobSerializer(serializers.ModelSerializer):
       - Human-readable format/status labels.
       - Output metadata (filename, size) when the job is completed.
       - A download_url when the job is completed and the output file exists.
+      - Conversion options parameters.
 
     Intentionally excludes:
       - session_key (internal ownership field).
@@ -56,6 +59,7 @@ class ConversionJobSerializer(serializers.ModelSerializer):
             "status_label",
             "original_filename",
             "file_size_bytes",
+            "options",
             "output_filename",
             "output_size_bytes",
             "download_url",
@@ -97,24 +101,21 @@ class ConversionJobCreateSerializer(serializers.Serializer):
     Write serializer for POST /api/conversions/.
 
     Accepts a multipart/form-data request containing:
-      - file:          the uploaded file (required)
-      - source_format: format key, e.g. "pdf"  (required)
-      - target_format: format key, e.g. "docx" (required)
-
-    Validates:
-      1. source_format and target_format are known values.
-      2. The (source, target) pair is a supported conversion.
-      3. The uploaded file's extension matches the declared source_format.
-      4. The uploaded file's MIME type matches the declared source_format.
-      5. The uploaded file does not exceed MAX_UPLOAD_SIZE.
-
-    NOTE: PDF magic-byte validation happens in ConversionService (after staging)
-    because the serializer only has access to an in-memory UploadedFile object.
+      - file:          the uploaded file (required for single-file conversions)
+      - files:         list of uploaded files (optional, used for target_format="zip")
+      - source_format: format key, e.g. "jpg" (required)
+      - target_format: format key, e.g. "png" or "zip" (required)
+      - options:       optional conversion options dict or JSON string
     """
 
     file = serializers.FileField(
-        required=True,
+        required=False,
         help_text="The file to convert.",
+    )
+    files = serializers.ListField(
+        child=serializers.FileField(),
+        required=False,
+        help_text="Multiple files to package into a ZIP archive.",
     )
     source_format = serializers.ChoiceField(
         choices=FORMAT_CHOICES,
@@ -126,22 +127,57 @@ class ConversionJobCreateSerializer(serializers.Serializer):
         required=True,
         help_text="Desired output format.",
     )
+    options = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Optional conversion parameters dict or JSON string.",
+    )
 
     def validate_file(self, uploaded_file):
-        """Validate file size."""
-        max_size = getattr(settings, "MAX_UPLOAD_SIZE", 52_428_800)
-        if uploaded_file.size > max_size:
-            max_mb = max_size / (1024 * 1024)
-            raise serializers.ValidationError(
-                f"File is too large. Maximum allowed size is {max_mb:.0f} MB."
-            )
+        """Validate single file size."""
+        if uploaded_file:
+            max_size = getattr(settings, "MAX_UPLOAD_SIZE", 52_428_800)
+            if uploaded_file.size > max_size:
+                max_mb = max_size / (1024 * 1024)
+                raise serializers.ValidationError(
+                    f"File is too large. Maximum allowed size is {max_mb:.0f} MB."
+                )
         return uploaded_file
+
+    def validate_files(self, uploaded_files):
+        """Validate multi-file sizes."""
+        if uploaded_files:
+            max_size = getattr(settings, "MAX_UPLOAD_SIZE", 52_428_800)
+            for f in uploaded_files:
+                if f.size > max_size:
+                    max_mb = max_size / (1024 * 1024)
+                    raise serializers.ValidationError(
+                        f"File '{f.name}' is too large. Maximum allowed size is {max_mb:.0f} MB."
+                    )
+        return uploaded_files
+
+    def validate_options(self, value):
+        """Parse options if provided as a JSON string."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except Exception as exc:
+                raise serializers.ValidationError("Invalid JSON string in options field.") from exc
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Options must be a valid JSON dictionary.")
+        return value
 
     def validate(self, attrs):
         """Cross-field validation: format pair + file extension + MIME type."""
         source_format = attrs.get("source_format")
         target_format = attrs.get("target_format")
         uploaded_file = attrs.get("file")
+        uploaded_files = attrs.get("files")
+
+        if not uploaded_file and not uploaded_files:
+            raise serializers.ValidationError(
+                {"file": "At least one uploaded file ('file' or 'files') is required."}
+            )
 
         # 1. Validate the conversion pair.
         if source_format and target_format:
@@ -156,33 +192,37 @@ class ConversionJobCreateSerializer(serializers.Serializer):
                     }
                 )
 
-        # 2. Validate file extension against declared source_format.
-        if source_format and uploaded_file:
-            allowed_exts = ALLOWED_EXTENSIONS.get(source_format, [])
-            file_ext = Path(uploaded_file.name).suffix.lower()
-            if file_ext not in allowed_exts:
-                raise serializers.ValidationError(
-                    {
-                        "file": (
-                            f"File extension '{file_ext}' does not match "
-                            f"the declared source format '{source_format}'. "
-                            f"Expected one of: {', '.join(allowed_exts)}."
-                        )
-                    }
-                )
+        # 2. Validate file extensions and MIME types for single file upload
+        files_to_check = [uploaded_file] if uploaded_file else (uploaded_files or [])
+        allowed_exts = ALLOWED_EXTENSIONS.get(source_format, [])
+        allowed_mimes = ALLOWED_MIME_TYPES.get(source_format, [])
 
-            # 3. Validate MIME type against declared source_format.
-            allowed_mimes = ALLOWED_MIME_TYPES.get(source_format, [])
-            content_type = getattr(uploaded_file, "content_type", None)
-            if content_type and content_type not in allowed_mimes:
-                raise serializers.ValidationError(
-                    {
-                        "file": (
-                            f"MIME type '{content_type}' does not match "
-                            f"the declared source format '{source_format}'. "
-                            f"Expected one of: {', '.join(allowed_mimes)}."
-                        )
-                    }
-                )
+        # For generic image sources or ZIP target, skip single-extension lock
+        if allowed_exts and source_format not in ("images", "zip") and target_format != "zip":
+            for f in files_to_check:
+                file_ext = Path(f.name).suffix.lower()
+                if file_ext not in allowed_exts:
+                    raise serializers.ValidationError(
+                        {
+                            "file": (
+                                f"File extension '{file_ext}' does not match "
+                                f"the declared source format '{source_format}'. "
+                                f"Expected one of: {', '.join(allowed_exts)}."
+                            )
+                        }
+                    )
+
+                content_type = getattr(f, "content_type", None)
+                if content_type and allowed_mimes and content_type not in allowed_mimes:
+                    raise serializers.ValidationError(
+                        {
+                            "file": (
+                                f"MIME type '{content_type}' does not match "
+                                f"the declared source format '{source_format}'. "
+                                f"Expected one of: {', '.join(allowed_mimes)}."
+                            )
+                        }
+                    )
 
         return attrs
+

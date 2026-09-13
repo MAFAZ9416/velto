@@ -54,7 +54,8 @@ class CsvToJpgEngine(BaseConversionEngine):
         validate_csv_signature(input_path)
 
         # 2. Create isolated temporary working directory for intermediate PDF
-        with tempfile.TemporaryDirectory(prefix="velto_csv_img_") as tmp_dir_str:
+        tmp_dir_str = tempfile.mkdtemp(prefix="velto_csv_img_")
+        try:
             tmp_dir = Path(tmp_dir_str)
             intermediate_pdf = tmp_dir / "intermediate.pdf"
 
@@ -68,3 +69,6 @@ class CsvToJpgEngine(BaseConversionEngine):
 
             logger.info("CsvToJpgEngine: successfully converted CSV to JPG/ZIP: %s", result_path or output_path)
             return result_path
+        finally:
+            import shutil
+            shutil.rmtree(tmp_dir_str, ignore_errors=True)

@@ -94,6 +94,11 @@ class ConversionJob(models.Model):
         blank=True,
         help_text="Engine error details. Empty unless status is 'failed'.",
     )
+    options = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional parameters for conversion engine (e.g. resize, quality).",
+    )
 
     # ── File-path metadata (never store file bytes here) ──────────────────────
     input_path = models.CharField(

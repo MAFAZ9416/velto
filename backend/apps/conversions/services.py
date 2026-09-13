@@ -107,55 +107,81 @@ class ConversionService:
     # ── Job creation ───────────────────────────────────────────────────────────
 
     @classmethod
+    def stage_uploaded_files(cls, uploaded_files: list[UploadedFile], source_format: str) -> str:
+        """
+        Stage multiple uploaded files into temporary staging directory.
+        Writes a manifest text file listing staged file paths.
+        """
+        if len(uploaded_files) == 1:
+            return cls.stage_uploaded_file(uploaded_files[0], source_format)
+
+        temp_dir = cls._get_temp_dir()
+        manifest_path = temp_dir / f"{uuid.uuid4().hex}_staged_manifest.txt"
+        staged_paths = []
+
+        for f in uploaded_files:
+            staging_name = f"{uuid.uuid4().hex}_{Path(f.name).name}"
+            dest_path = temp_dir / staging_name
+            with open(dest_path, "wb") as dest:
+                for chunk in f.chunks():
+                    dest.write(chunk)
+            staged_paths.append(str(dest_path))
+
+        with open(manifest_path, "w", encoding="utf-8") as manifest:
+            for sp in staged_paths:
+                manifest.write(f"{sp}\n")
+
+        return str(manifest_path)
+
+    # ── Job creation ───────────────────────────────────────────────────────────
+
+    @classmethod
     def create_job(
         cls,
         *,
         source_format: str,
         target_format: str,
-        uploaded_file: UploadedFile,
+        uploaded_file: Optional[UploadedFile] = None,
+        uploaded_files: Optional[list[UploadedFile]] = None,
+        options: Optional[dict] = None,
         session_key: str,
         user=None,
     ) -> ConversionJob:
         """
-        Validate input, stage the uploaded file, and create a PENDING ConversionJob.
-
-        Parameters
-        ----------
-        source_format, target_format : str
-            Must form a valid conversion pair.
-        uploaded_file : UploadedFile
-            The file from request.FILES. Already size/extension/MIME validated
-            by the serializer, but this layer adds PDF signature validation.
-        session_key : str
-            Django session key for anonymous ownership.
-        user : User | None
-            Set when the request comes from an authenticated user.
-
-        Returns
-        -------
-        ConversionJob in PENDING status, with input_path saved.
-
-        Raises
-        ------
-        ConversionServiceError
-            If the format pair is not supported.
+        Validate input, stage uploaded file(s), and create a PENDING ConversionJob.
         """
         if not is_valid_conversion(source_format, target_format):
             raise ConversionServiceError(
                 f"Unsupported conversion: {source_format} → {target_format}."
             )
 
-        # Stage to disk — UUID-named, never using the original filename as a path
-        staged_path = cls.stage_uploaded_file(uploaded_file, source_format)
+        if options is None:
+            options = {}
+
+        if uploaded_files and len(uploaded_files) > 1:
+            staged_path = cls.stage_uploaded_files(uploaded_files, source_format)
+            orig_filename = f"{len(uploaded_files)}_images.zip"
+            total_bytes = sum(f.size for f in uploaded_files)
+        elif uploaded_files and len(uploaded_files) == 1:
+            staged_path = cls.stage_uploaded_file(uploaded_files[0], source_format)
+            orig_filename = uploaded_files[0].name
+            total_bytes = uploaded_files[0].size
+        elif uploaded_file:
+            staged_path = cls.stage_uploaded_file(uploaded_file, source_format)
+            orig_filename = uploaded_file.name
+            total_bytes = uploaded_file.size
+        else:
+            raise ConversionServiceError("No uploaded file provided.")
 
         job = ConversionJob.objects.create(
             user=user,
             session_key=session_key or "",
             source_format=source_format,
             target_format=target_format,
+            options=options,
             status=JobStatus.PENDING,
-            original_filename=uploaded_file.name,
-            file_size_bytes=uploaded_file.size,
+            original_filename=orig_filename,
+            file_size_bytes=total_bytes,
             input_path=staged_path,       # saved so process_job() can find it
         )
 
@@ -174,26 +200,6 @@ class ConversionService:
     def process_job(cls, job: ConversionJob) -> ConversionJob:
         """
         Dispatch the job to the appropriate engine and update its status.
-
-        This method runs synchronously (Phase 2). In Phase 3 it will be
-        invoked by a Celery worker instead of the view.
-
-        Workflow
-        --------
-        1. Guard against double-processing.
-        2. Resolve the engine from the registry.
-        3. Mark job PROCESSING + set started_at (atomic DB write).
-        4. Generate a UUID-based output path in the temp dir.
-        5. Run the engine.
-        6. Validate the output.
-        7. Mark job COMPLETED + save output metadata.
-        8. Clean up the input file.
-        9. On any failure → mark FAILED + save error + clean up partial output.
-
-        Returns
-        -------
-        ConversionJob
-            The updated job (completed or failed).
         """
         # ── Guard: never re-process a terminal job ──────────────────────────
         if job.is_terminal:
@@ -248,7 +254,13 @@ class ConversionService:
         engine = engine_cls()
         result_path = None
         try:
-            result_path = engine.convert(job.input_path, output_path)
+            import inspect
+            sig = inspect.signature(engine.convert)
+            if "options" in sig.parameters:
+                result_path = engine.convert(job.input_path, output_path, options=job.options)
+            else:
+                result_path = engine.convert(job.input_path, output_path)
+
             if result_path:
                 actual_path = Path(result_path)
                 if actual_path.exists():
@@ -309,11 +321,6 @@ class ConversionService:
     def get_job_output(cls, job: ConversionJob) -> Optional[str]:
         """
         Return the absolute output file path for a completed job, or None.
-
-        Returns None if:
-          - The job is not completed.
-          - The output path is not set.
-          - The output file no longer exists on disk.
         """
         if job.status != JobStatus.COMPLETED:
             return None
@@ -334,8 +341,6 @@ class ConversionService:
     def cleanup_job_files(cls, job: ConversionJob) -> None:
         """
         Delete both input and output staged files for a job.
-
-        Safe to call on already-cleaned-up jobs.
         """
         if job.input_path:
             cls._safe_delete_file(job.input_path, label="input")
@@ -353,8 +358,6 @@ class ConversionService:
     ) -> None:
         """
         Transition a job to FAILED and store a user-safe error message.
-
-        If a partial output file exists, delete it.
         """
         with transaction.atomic():
             job.status = JobStatus.FAILED
@@ -368,13 +371,27 @@ class ConversionService:
 
     @staticmethod
     def _safe_delete_file(path: str, label: str = "file") -> None:
-        """Delete a file without raising if it doesn't exist or can't be deleted."""
+        """Delete a file or directory safely."""
         if not path:
             return
         try:
             p = Path(path)
-            if p.exists():
+            if p.is_dir():
+                import shutil
+                shutil.rmtree(p, ignore_errors=True)
+                logger.debug("Deleted %s directory: %s", label, path)
+            elif p.exists():
+                if p.suffix.lower() == ".txt" and "manifest" in p.name.lower():
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            for line in f:
+                                fp = Path(line.strip())
+                                if fp.exists():
+                                    fp.unlink()
+                    except Exception:
+                        pass
                 p.unlink()
                 logger.debug("Deleted %s file: %s", label, path)
         except OSError as exc:
             logger.warning("Could not delete %s file %s: %s", label, path, exc)
+

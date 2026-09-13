@@ -300,15 +300,17 @@ class CsvToPdfEngineUnitTests(TestCase):
         out_pdf = os.path.join(TEST_TEMP_DIR, "cleanup_test.pdf")
         engine = CsvToPdfEngine()
 
+        temp_root = tempfile.gettempdir()
+        initial_pdf = set(d for d in os.listdir(temp_root) if d.startswith("velto_csv2pdf_"))
+
         try:
             engine.convert(csv_path, out_pdf)
             self.assertTrue(os.path.exists(out_pdf))
 
-            # Verify no orphaned velto_csv2pdf_ temp directories remain in system temp
-            temp_root = tempfile.gettempdir()
+            # Verify no NEW orphaned velto_csv2pdf_ temp directories remain in system temp
             orphans = [
                 d for d in os.listdir(temp_root)
-                if d.startswith("velto_csv2pdf_")
+                if d.startswith("velto_csv2pdf_") and d not in initial_pdf
             ]
             self.assertEqual(len(orphans), 0, f"Orphaned temp dirs found: {orphans}")
         finally:

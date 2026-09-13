@@ -29,6 +29,13 @@ class ConversionsConfig(AppConfig):
         from apps.conversions.engines.csv_to_jpg import CsvToJpgEngine
         from apps.conversions.engines.csv_to_png import CsvToPngEngine
 
+        from apps.conversions.engines.image_engine import (
+            JpgToPngEngine,
+            PngToJpgEngine,
+            ImagesToZipEngine,
+            make_generic_image_engine_class,
+        )
+
         engine_registry.register(PdfToDocxEngine)
         engine_registry.register(PdfToJpgEngine)
         engine_registry.register(PdfToPngEngine)
@@ -46,6 +53,29 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(CsvToPdfEngine)
         engine_registry.register(CsvToJpgEngine)
         engine_registry.register(CsvToPngEngine)
+
+        # Register Image engines
+        engine_registry.register(JpgToPngEngine)
+        engine_registry.register(PngToJpgEngine)
+        engine_registry.register(ImagesToZipEngine)
+
+        # Register remaining generic image conversion pairs
+        image_formats = {"jpg", "png", "webp", "bmp", "tiff", "gif"}
+        for src in image_formats:
+            for tgt in image_formats:
+                if (src, tgt) in [("jpg", "png"), ("png", "jpg")]:
+                    continue  # already registered above
+                if engine_registry.get(src, tgt) is None:
+                    cls = make_generic_image_engine_class(src, tgt)
+                    engine_registry.register(cls)
+
+            # Also register image -> zip engine for individual format keys
+            if engine_registry.get(src, "zip") is None:
+                zip_cls = make_generic_image_engine_class(src, "zip")
+                # Use ImagesToZipEngine convert method
+                zip_cls.convert = lambda self, input_path, output_path, options=None: ImagesToZipEngine().convert(input_path, output_path, options)
+                engine_registry.register(zip_cls)
+
 
 
 

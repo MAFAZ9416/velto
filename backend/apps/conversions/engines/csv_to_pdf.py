@@ -49,10 +49,9 @@ class CsvToPdfEngine(BaseConversionEngine):
         validate_csv_signature(input_path)
 
         # 2. Prepare temporary directory for intermediate XLSX file
-        temp_dir = tempfile.mkdtemp(prefix="velto_csv2pdf_")
-        temp_xlsx = os.path.join(temp_dir, "intermediate.xlsx")
+        with tempfile.TemporaryDirectory(prefix="velto_csv2pdf_") as temp_dir:
+            temp_xlsx = os.path.join(temp_dir, "intermediate.xlsx")
 
-        try:
             # 3. Convert CSV → XLSX using CsvToXlsxEngine
             csv_engine = CsvToXlsxEngine()
             csv_engine.convert(input_path, temp_xlsx)
@@ -66,16 +65,3 @@ class CsvToPdfEngine(BaseConversionEngine):
 
             logger.info("CsvToPdfEngine: successfully converted CSV to PDF: %s", output_path)
             return None
-        finally:
-            # 6. Ensure temporary XLSX and directory cleanup
-            if os.path.exists(temp_xlsx):
-                try:
-                    os.remove(temp_xlsx)
-                except OSError as exc:
-                    logger.warning("Could not remove temp XLSX file %s: %s", temp_xlsx, exc)
-
-            if os.path.exists(temp_dir):
-                try:
-                    os.rmdir(temp_dir)
-                except OSError as exc:
-                    logger.warning("Could not remove temp dir %s: %s", temp_dir, exc)

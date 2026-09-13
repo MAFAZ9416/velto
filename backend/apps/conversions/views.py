@@ -113,7 +113,13 @@ class ConversionJobListCreateView(APIView):
         )
 
     def post(self, request):
-        serializer = ConversionJobCreateSerializer(data=request.data)
+        # Support multi-file upload lists passed under 'file' or 'files'
+        data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+        file_list = request.FILES.getlist("files") or request.FILES.getlist("file")
+        if len(file_list) > 1 and "files" not in data:
+            data.setlist("files", file_list) if hasattr(data, "setlist") else data.update({"files": file_list})
+
+        serializer = ConversionJobCreateSerializer(data=data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -125,7 +131,9 @@ class ConversionJobListCreateView(APIView):
             job = ConversionService.create_job(
                 source_format=validated["source_format"],
                 target_format=validated["target_format"],
-                uploaded_file=validated["file"],
+                uploaded_file=validated.get("file"),
+                uploaded_files=validated.get("files") or (file_list if len(file_list) > 1 else None),
+                options=validated.get("options", {}),
                 session_key=session_key,
                 user=request.user if request.user.is_authenticated else None,
             )

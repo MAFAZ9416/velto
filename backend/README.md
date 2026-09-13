@@ -4,57 +4,75 @@ Production-oriented Django + DRF backend for the VELTO file conversion SaaS plat
 
 ---
 
-## Phase 2 — Conversion Engines (PDF, DOCX, PPTX, XLSX, CSV, JPG, PNG)
+# VELTO Conversion Backend
 
-Phase 2 provides real, working conversion engines for:
-* **PDF → DOCX** using **pdf2docx** and **PyMuPDF**.
-* **PDF → JPG** using **PyMuPDF** (`pymupdf`).
-* **PDF → PNG** using **PyMuPDF** (`pymupdf`).
-* **PDF → XLSX** using **PyMuPDF**, **pdfplumber**, and **openpyxl**.
-* **DOCX → PDF** using **LibreOffice** headless mode.
-* **DOCX → JPG** using **LibreOffice** + **PyMuPDF**.
-* **DOCX → PNG** using **LibreOffice** + **PyMuPDF**.
-* **PPTX → PDF** using **LibreOffice** headless mode.
-* **PPTX → JPG** using **LibreOffice** + **PyMuPDF**.
-* **PPTX → PNG** using **LibreOffice** + **PyMuPDF**.
-* **XLSX → PDF** using **LibreOffice** headless mode.
-* **XLSX → JPG** using **LibreOffice** + **PyMuPDF**.
-* **XLSX → PNG** using **LibreOffice** + **PyMuPDF**.
-* **CSV → XLSX** using native **csv** module + **openpyxl**.
-* **CSV → PDF** using **CsvToXlsxEngine** + **XlsxToPdfEngine** (**LibreOffice**).
-* **CSV → JPG** using **CsvToPdfEngine** + **PdfToJpgEngine** (**PyMuPDF**).
-* **CSV → PNG** using **CsvToPdfEngine** + **PdfToPngEngine** (**PyMuPDF**).
+Production-oriented Django + DRF backend for the VELTO file conversion SaaS platform.
 
-### What works now
+---
+
+## Phase 3 — Image Conversion Phase (JPG, PNG, WEBP, BMP, TIFF, GIF, ZIP)
+
+Phase 3 provides production-quality image conversion engines, compression, resizing, and archive packaging:
+* **JPG ↔ PNG**: High-fidelity conversion preserving visual orientation and dimensions.
+* **PNG → JPG**: Compositing alpha channel onto solid white background `(255, 255, 255)` to prevent legibility issues.
+* **General Format Conversions**: Full matrix support between **JPG**, **PNG**, **WEBP**, **BMP**, **TIFF**, **GIF**.
+* **Image Compression**: Customizable quality (JPEG/WEBP), progressive encoding, optimize flags, and PNG compression levels.
+* **Image Resizing**: High-quality `LANCZOS` resampling, aspect-ratio preservation, no-upscale defaults, and max pixel bounds.
+* **Multiple Images → ZIP**: Packaging single or multiple uploaded images into clean ZIP archives with zero-padded deterministic ordering.
+
+### Supported Conversions & Status
 
 | Feature | Status |
 |---|---|
-| Upload a PDF, DOCX, PPTX, XLSX, or CSV file via REST API | ✅ |
-| Validate PDF, DOCX, PPTX, XLSX & CSV (signatures, extension, MIME, size, structure) | ✅ |
-| Convert PDF → Word (.docx) | ✅ Real conversion |
-| Convert PDF → JPG (1-page .jpg, multi-page .zip) | ✅ Real rendering |
-| Convert PDF → PNG (1-page .png, multi-page .zip) | ✅ Real rendering |
-| Convert PDF → Excel (.xlsx) | ✅ Real table extraction |
-| Convert Word (.docx) → PDF | ✅ Real LibreOffice conversion |
-| Convert Word (.docx) → JPG (1-page .jpg, multi-page .zip) | ✅ Real conversion |
-| Convert Word (.docx) → PNG (1-page .png, multi-page .zip) | ✅ Real conversion |
-| Convert PowerPoint (.pptx) → PDF | ✅ Real LibreOffice conversion |
-| Convert PowerPoint (.pptx) → JPG (1-slide .jpg, multi-slide .zip) | ✅ Real conversion |
-| Convert PowerPoint (.pptx) → PNG (1-slide .png, multi-slide .zip) | ✅ Real conversion |
-| Convert Excel (.xlsx) → PDF | ✅ Real LibreOffice conversion |
-| Convert Excel (.xlsx) → JPG (1-page .jpg, multi-page .zip) | ✅ Real conversion |
-| Convert Excel (.xlsx) → PNG (1-page .png, multi-page .zip) | ✅ Real conversion |
-| Convert CSV → Excel (.xlsx) | ✅ Real openpyxl generation |
-| Convert CSV → PDF | ✅ Real CsvToXlsx + LibreOffice conversion |
-| Convert CSV → JPG (1-page .jpg, multi-page .zip) | ✅ Real rendering |
-| Convert CSV → PNG (1-page .png, multi-page .zip) | ✅ Real rendering |
+| Upload PDF, DOCX, PPTX, XLSX, CSV, JPG, PNG, WEBP, BMP, TIFF, GIF | ✅ |
+| Validate image signatures, dimensions, decomp bomb bounds & format | ✅ Pillow validation |
+| Convert JPG ↔ PNG | ✅ Real conversion |
+| Convert PNG → JPG (RGBA transparent composited on white) | ✅ Real rendering |
+| Convert Image formats (JPG, PNG, WEBP, BMP, TIFF, GIF) | ✅ Real conversion |
+| Image Compression (`quality`, `compress_level`, `optimize`, `progressive`) | ✅ Real optimization |
+| Image Resizing (`width`, `height`, `preserve_aspect_ratio`, `allow_upscale`) | ✅ Real LANCZOS resampling |
+| Package Multiple Images → ZIP archive | ✅ Real ZIP packaging |
+| Convert PDF → Word (.docx), Excel (.xlsx), JPG, PNG | ✅ Real rendering |
+| Convert Word (.docx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
+| Convert PowerPoint (.pptx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
+| Convert Excel (.xlsx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
+| Convert CSV → XLSX, PDF, JPG, PNG | ✅ Real conversion |
 | Return completed job with accurate output metadata | ✅ |
 | Download converted output via protected endpoint | ✅ |
-| Session-based anonymous ownership | ✅ |
-| Honest error responses & output validation via PyMuPDF & Pillow | ✅ |
-| Invalid/corrupt file returns honest error | ✅ |
-| Cross-session access blocked | ✅ |
-| 269 automated tests | ✅ All 269 passing |
+| Session-based anonymous ownership & cross-session isolation | ✅ |
+| Honest error responses & resource teardown | ✅ |
+| 297 automated tests | ✅ All 297 passing |
+
+---
+
+## Image Conversion Parameters
+
+API requests to `POST /api/conversions/` can pass optional parameters inside `options`:
+
+```json
+{
+  "source_format": "jpg",
+  "target_format": "png",
+  "options": {
+    "width": 800,
+    "height": 600,
+    "preserve_aspect_ratio": true,
+    "allow_upscale": false,
+    "quality": 85,
+    "compress_level": 6,
+    "optimize": true,
+    "progressive": true
+  }
+}
+```
+
+### Safety & Processing Rules
+
+- **Decompression Bomb Protection**: Enforces an `80,000,000` pixel limit (80 Megapixels) per image to protect server resources.
+- **EXIF Orientation**: Applies `PIL.ImageOps.exif_transpose()` automatically before resizing or saving.
+- **Transparency Compositing**: Converts transparent RGBA / Palette PNGs to solid white RGB background when output format is JPEG or BMP.
+- **Animation Safety**: Restricts multi-frame animated GIF/WEBP inputs to single-frame processing or returns explicit validation errors.
+- **ZIP Security**: Enforces zero-padded deterministic file ordering (`image_001_...`, `image_002_...`) and sanitizes archive member paths against directory traversal.
 
 ---
 
@@ -91,21 +109,13 @@ python backend/manage.py runserver 8000
 
 ---
 
-## Output Behavior for XLSX → JPG / PNG Conversions
-
-- **Composition**: Converts XLSX to intermediate PDF via `XlsxToPdfEngine` (LibreOffice headless) and renders pages via `PdfToJpgEngine` / `PdfToPngEngine` (PyMuPDF).
-- **Single-Page Workbook**: Produces a single image file (`financial_report.jpg` or `financial_report.png`).
-- **Multi-Sheet/Multi-Page Workbook**: Produces a `.zip` archive (`financial_report.zip`) containing ordered sheet images (`page-001.jpg`, `page-002.jpg`, etc.).
-- **Resource Safety**: Intermediate PDFs, profile directories, and work files are generated inside isolated temporary directories and automatically purged on success and failure.
-
----
-
 ## Running Tests
 
 ```bash
-# Run the focused XLSX image test suite
-python backend/manage.py test apps.conversions.tests_phase2_xlsx_images --verbosity=2
+# Run the Phase 3 Image Conversion test suite
+python backend/manage.py test apps.conversions.tests_phase3_images --verbosity=2
 
 # Run the full backend test suite
 python backend/manage.py test apps.core apps.conversions apps.history --verbosity=2
 ```
+

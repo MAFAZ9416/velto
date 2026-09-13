@@ -253,15 +253,18 @@ class CsvToPngEngineUnitTests(TestCase):
         out_png = os.path.join(TEST_TEMP_DIR, "cleanup_out.png")
         engine = CsvToPngEngine()
 
+        temp_root = tempfile.gettempdir()
+        initial_img = set(d for d in os.listdir(temp_root) if d.startswith("velto_csv_img_"))
+        initial_pdf = set(d for d in os.listdir(temp_root) if d.startswith("velto_csv2pdf_"))
+
         try:
             res = engine.convert(csv_path, out_png)
             actual_path = res or out_png
             self.assertTrue(os.path.exists(actual_path))
 
-            # Verify no orphaned temp dirs remain in system temp
-            temp_root = tempfile.gettempdir()
-            orphans_img = [d for d in os.listdir(temp_root) if d.startswith("velto_csv_img_")]
-            orphans_pdf = [d for d in os.listdir(temp_root) if d.startswith("velto_csv2pdf_")]
+            # Verify no NEW orphaned temp dirs remain in system temp
+            orphans_img = [d for d in os.listdir(temp_root) if d.startswith("velto_csv_img_") and d not in initial_img]
+            orphans_pdf = [d for d in os.listdir(temp_root) if d.startswith("velto_csv2pdf_") and d not in initial_pdf]
             self.assertEqual(len(orphans_img), 0, f"Orphaned img temp dirs: {orphans_img}")
             self.assertEqual(len(orphans_pdf), 0, f"Orphaned pdf temp dirs: {orphans_pdf}")
         finally:
