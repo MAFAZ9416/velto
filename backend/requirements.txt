@@ -1,0 +1,20 @@
+Django>=4.2,<5.0
+djangorestframework>=3.15,<4.0
+django-cors-headers>=4.3,<5.0
+python-dotenv>=1.0,<2.0
+
+# Phase 2: PDF → DOCX conversion engine
+pdf2docx>=0.5.6        # Primary PDF→DOCX conversion engine
+                       # Requires: PyMuPDF, python-docx, numpy, opencv-python-headless, fonttools
+
+# Phase 2: PDF → Excel conversion engine
+openpyxl>=3.1.0        # XLSX workbook creation & validation
+pdfplumber>=0.11.0     # PDF table extraction fallback engine
+
+# Phase 2: Test fixture generation & Pillow image support
+reportlab>=4.0         # Generates real PDF test fixtures
+pillow>=9.0            # Image support for pdf2docx and reportlab image fixtures
+python-pptx>=1.0.0     # PPTX test fixture generation
+
+
+

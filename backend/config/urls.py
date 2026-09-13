@@ -1,0 +1,20 @@
+"""
+VELTO Conversion — Root URL configuration.
+"""
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    # Django admin (internal use)
+    path("admin/", admin.site.urls),
+
+    # Core: health check
+    path("api/", include("apps.core.urls")),
+
+    # Conversions: formats, job creation, job list, job detail
+    path("api/conversions/", include("apps.conversions.urls")),
+
+    # History: user/session conversion history
+    path("api/history/", include("apps.history.urls")),
+]
