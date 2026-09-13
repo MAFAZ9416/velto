@@ -49,7 +49,8 @@ class CsvToPdfEngine(BaseConversionEngine):
         validate_csv_signature(input_path)
 
         # 2. Prepare temporary directory for intermediate XLSX file
-        with tempfile.TemporaryDirectory(prefix="velto_csv2pdf_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="velto_csv2pdf_", ignore_cleanup_errors=True) as temp_dir:
+
             temp_xlsx = os.path.join(temp_dir, "intermediate.xlsx")
 
             # 3. Convert CSV → XLSX using CsvToXlsxEngine

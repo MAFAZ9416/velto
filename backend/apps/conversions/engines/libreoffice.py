@@ -102,7 +102,8 @@ def run_libreoffice_pdf_conversion(
 
     # 4. Perform conversion inside isolated temp directory & user profile
     prefix = f"velto_{format_label.lower()}2pdf_"
-    with tempfile.TemporaryDirectory(prefix=prefix) as tmp_dir_str:
+    with tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True) as tmp_dir_str:
+
         tmp_dir = Path(tmp_dir_str)
         out_dir = tmp_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
