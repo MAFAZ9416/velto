@@ -365,7 +365,9 @@ class ConversionService:
             job.completed_at = timezone.now()
             job.save(update_fields=["status", "error_message", "completed_at"])
 
-        # Clean up any partial output
+        # Clean up input file and any partial output file
+        if job.input_path:
+            cls._safe_delete_file(job.input_path, label="input")
         if output_path:
             cls._safe_delete_file(output_path, label="partial output")
 

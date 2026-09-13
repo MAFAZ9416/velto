@@ -16,5 +16,5 @@ reportlab>=4.0         # Generates real PDF test fixtures
 pillow>=9.0            # Image support for pdf2docx and reportlab image fixtures
 python-pptx>=1.0.0     # PPTX test fixture generation
 
-
-
+# Phase 4: Document conversion engines (TXT, HTML, Markdown)
+markdown>=3.4.0

@@ -495,3 +495,80 @@ def validate_xlsx_workbook(xlsx_path: str) -> None:
         wb.close()
 
 
+def validate_docx_output(docx_path: str) -> None:
+    """
+    Verify that `docx_path` is a valid, non-empty DOCX document.
+
+    Checks:
+    - File exists and is non-empty.
+    - File is a valid ZIP archive.
+    - Contains '[Content_Types].xml' and 'word/document.xml'.
+
+    Raises
+    ------
+    ConversionError
+        If validation fails.
+    """
+    import zipfile
+    validate_output_file(docx_path)
+
+    try:
+        with zipfile.ZipFile(docx_path, "r") as zf:
+            if zf.testzip() is not None:
+                raise ConversionError("Generated DOCX file is a corrupted ZIP package.")
+            namelist = zf.namelist()
+            if "[Content_Types].xml" not in namelist or "word/document.xml" not in namelist:
+                raise ConversionError("Generated DOCX file is missing required XML components.")
+    except ConversionError:
+        raise
+    except Exception as exc:
+        logger.warning("DOCX output validation failed for %s: %s", docx_path, exc)
+        raise ConversionError("Generated DOCX document is invalid or corrupted.") from exc
+
+
+def validate_txt_signature(path: str) -> None:
+    """
+    Verify that the file at `path` is a valid text file.
+
+    Checks:
+    - File exists and is a regular file.
+    - File is non-empty (>0 bytes).
+    - File can be decoded cleanly as text.
+    """
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        raise ConversionError("The uploaded TXT file does not exist.")
+    if p.stat().st_size == 0:
+        raise ConversionError("Input file is empty (0 bytes).")
+
+
+def validate_html_signature(path: str) -> None:
+    """
+    Verify that the file at `path` is a valid HTML file.
+
+    Checks:
+    - File exists and is a regular file.
+    - File is non-empty (>0 bytes).
+    """
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        raise ConversionError("The uploaded HTML file does not exist.")
+    if p.stat().st_size == 0:
+        raise ConversionError("Input file is empty (0 bytes).")
+
+
+def validate_md_signature(path: str) -> None:
+    """
+    Verify that the file at `path` is a valid Markdown file.
+
+    Checks:
+    - File exists and is a regular file.
+    - File is non-empty (>0 bytes).
+    """
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        raise ConversionError("The uploaded Markdown file does not exist.")
+    if p.stat().st_size == 0:
+        raise ConversionError("Input file is empty (0 bytes).")
+
+

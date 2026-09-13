@@ -26,6 +26,9 @@ FORMAT_BMP = "bmp"
 FORMAT_TIFF = "tiff"
 FORMAT_GIF = "gif"
 FORMAT_ZIP = "zip"
+FORMAT_TXT = "txt"
+FORMAT_HTML = "html"
+FORMAT_MD = "md"
 
 # ── Human-readable labels ──────────────────────────────────────────────────────
 FORMAT_LABELS = {
@@ -41,6 +44,9 @@ FORMAT_LABELS = {
     FORMAT_TIFF: "TIFF Image",
     FORMAT_GIF: "GIF Image",
     FORMAT_ZIP: "ZIP Archive",
+    FORMAT_TXT: "Text File (TXT)",
+    FORMAT_HTML: "HTML Document",
+    FORMAT_MD: "Markdown Document",
 }
 
 # ── Django field choices ───────────────────────────────────────────────────────
@@ -70,6 +76,9 @@ ALLOWED_MIME_TYPES: dict[str, list[str]] = {
     FORMAT_TIFF: ["image/tiff"],
     FORMAT_GIF: ["image/gif"],
     FORMAT_ZIP: ["application/zip", "application/x-zip-compressed"],
+    FORMAT_TXT: ["text/plain"],
+    FORMAT_HTML: ["text/html", "application/xhtml+xml"],
+    FORMAT_MD: ["text/markdown", "text/x-markdown", "text/plain"],
 }
 
 # ── Allowed file extensions per source format ──────────────────────────────────
@@ -86,6 +95,9 @@ ALLOWED_EXTENSIONS: dict[str, list[str]] = {
     FORMAT_TIFF: [".tiff", ".tif"],
     FORMAT_GIF: [".gif"],
     FORMAT_ZIP: [".zip"],
+    FORMAT_TXT: [".txt"],
+    FORMAT_HTML: [".html", ".htm"],
+    FORMAT_MD: [".md", ".markdown"],
 }
 
 # ── Valid conversion pairs (source_format, target_format) ─────────────────────
@@ -129,6 +141,12 @@ SUPPORTED_PAIRS: list[tuple[str, str]] = [
     (FORMAT_JPG, FORMAT_ZIP),
     (FORMAT_PNG, FORMAT_ZIP),
     (FORMAT_WEBP, FORMAT_ZIP),
+    (FORMAT_TXT, FORMAT_PDF),
+    (FORMAT_TXT, FORMAT_DOCX),
+    (FORMAT_HTML, FORMAT_PDF),
+    (FORMAT_HTML, FORMAT_DOCX),
+    (FORMAT_MD, FORMAT_PDF),
+    (FORMAT_MD, FORMAT_DOCX),
 ]
 
 

@@ -36,6 +36,15 @@ class ConversionsConfig(AppConfig):
             make_generic_image_engine_class,
         )
 
+        from apps.conversions.engines.document_engine import (
+            TxtToPdfEngine,
+            TxtToDocxEngine,
+            HtmlToPdfEngine,
+            HtmlToDocxEngine,
+            MarkdownToPdfEngine,
+            MarkdownToDocxEngine,
+        )
+
         engine_registry.register(PdfToDocxEngine)
         engine_registry.register(PdfToJpgEngine)
         engine_registry.register(PdfToPngEngine)
@@ -53,6 +62,14 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(CsvToPdfEngine)
         engine_registry.register(CsvToJpgEngine)
         engine_registry.register(CsvToPngEngine)
+
+        # Register Document engines
+        engine_registry.register(TxtToPdfEngine)
+        engine_registry.register(TxtToDocxEngine)
+        engine_registry.register(HtmlToPdfEngine)
+        engine_registry.register(HtmlToDocxEngine)
+        engine_registry.register(MarkdownToPdfEngine)
+        engine_registry.register(MarkdownToDocxEngine)
 
         # Register Image engines
         engine_registry.register(JpgToPngEngine)

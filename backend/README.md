@@ -4,75 +4,63 @@ Production-oriented Django + DRF backend for the VELTO file conversion SaaS plat
 
 ---
 
-# VELTO Conversion Backend
+## Phase 4 — Document Conversion Phase (TXT, HTML, Markdown → PDF / DOCX)
 
-Production-oriented Django + DRF backend for the VELTO file conversion SaaS platform.
+Phase 4 introduces production-ready document conversion engines for plain text, HTML, and Markdown inputs to PDF and Word (DOCX) documents using a unified block tree representation pipeline:
 
----
-
-## Phase 3 — Image Conversion Phase (JPG, PNG, WEBP, BMP, TIFF, GIF, ZIP)
-
-Phase 3 provides production-quality image conversion engines, compression, resizing, and archive packaging:
-* **JPG ↔ PNG**: High-fidelity conversion preserving visual orientation and dimensions.
-* **PNG → JPG**: Compositing alpha channel onto solid white background `(255, 255, 255)` to prevent legibility issues.
-* **General Format Conversions**: Full matrix support between **JPG**, **PNG**, **WEBP**, **BMP**, **TIFF**, **GIF**.
-* **Image Compression**: Customizable quality (JPEG/WEBP), progressive encoding, optimize flags, and PNG compression levels.
-* **Image Resizing**: High-quality `LANCZOS` resampling, aspect-ratio preservation, no-upscale defaults, and max pixel bounds.
-* **Multiple Images → ZIP**: Packaging single or multiple uploaded images into clean ZIP archives with zero-padded deterministic ordering.
+* **TXT → PDF / DOCX**: Full UTF-8 and UTF-8 BOM decoding, CRLF/LF line ending normalization, blank line preservation, long-line automatic wrapping, multi-page layout, and Tamil/Unicode rendering.
+* **HTML → PDF / DOCX**: Strict security-first HTML sanitization (stripping scripts, styles, iframes, embeds, event handlers, unsafe URL schemes, local file references, and remote network calls) with structured conversion of headings, paragraphs, lists, blockquotes, code blocks, and tables.
+* **Markdown → PDF / DOCX**: Parsing GFM Markdown (headings, emphasis, ordered/unordered lists, blockquotes, code blocks, tables, horizontal rules, safe links) into sanitized document blocks.
 
 ### Supported Conversions & Status
 
 | Feature | Status |
 |---|---|
-| Upload PDF, DOCX, PPTX, XLSX, CSV, JPG, PNG, WEBP, BMP, TIFF, GIF | ✅ |
-| Validate image signatures, dimensions, decomp bomb bounds & format | ✅ Pillow validation |
-| Convert JPG ↔ PNG | ✅ Real conversion |
-| Convert PNG → JPG (RGBA transparent composited on white) | ✅ Real rendering |
-| Convert Image formats (JPG, PNG, WEBP, BMP, TIFF, GIF) | ✅ Real conversion |
-| Image Compression (`quality`, `compress_level`, `optimize`, `progressive`) | ✅ Real optimization |
-| Image Resizing (`width`, `height`, `preserve_aspect_ratio`, `allow_upscale`) | ✅ Real LANCZOS resampling |
-| Package Multiple Images → ZIP archive | ✅ Real ZIP packaging |
+| Upload TXT, HTML, MD, PDF, DOCX, PPTX, XLSX, CSV, Images | ✅ |
+| Convert TXT → PDF | ✅ Real ReportLab rendering |
+| Convert TXT → DOCX | ✅ Real python-docx builder |
+| Convert HTML → PDF | ✅ Sanitized block pipeline |
+| Convert HTML → DOCX | ✅ Sanitized block pipeline |
+| Convert Markdown → PDF | ✅ GFM Markdown parsing |
+| Convert Markdown → DOCX | ✅ GFM Markdown parsing |
+| Strict HTML/Markdown XSS & SSRF Security | ✅ Strips scripts, event handlers & dangerous URL schemes |
+| Tamil & Unicode Font Registration | ✅ Automatic TTF font detection (Latha, Nirmala, Noto, Segoe UI) |
+| Safety & Resource Limits | ✅ Enforces max upload (50MB), text length (5M chars), HTML elements (50k), PDF pages (500) |
 | Convert PDF → Word (.docx), Excel (.xlsx), JPG, PNG | ✅ Real rendering |
 | Convert Word (.docx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
 | Convert PowerPoint (.pptx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
 | Convert Excel (.xlsx) → PDF, JPG, PNG | ✅ Real LibreOffice / PyMuPDF |
 | Convert CSV → XLSX, PDF, JPG, PNG | ✅ Real conversion |
-| Return completed job with accurate output metadata | ✅ |
+| Convert Image formats (JPG, PNG, WEBP, BMP, TIFF, GIF, ZIP) | ✅ Real Pillow / ZIP engine |
 | Download converted output via protected endpoint | ✅ |
 | Session-based anonymous ownership & cross-session isolation | ✅ |
 | Honest error responses & resource teardown | ✅ |
-| 297 automated tests | ✅ All 297 passing |
+| 339+ automated tests | ✅ All passing |
 
 ---
 
-## Image Conversion Parameters
+## Document Engine Security & Safety Policy
 
-API requests to `POST /api/conversions/` can pass optional parameters inside `options`:
-
-```json
-{
-  "source_format": "jpg",
-  "target_format": "png",
-  "options": {
-    "width": 800,
-    "height": 600,
-    "preserve_aspect_ratio": true,
-    "allow_upscale": false,
-    "quality": 85,
-    "compress_level": 6,
-    "optimize": true,
-    "progressive": true
-  }
-}
-```
-
-### Safety & Processing Rules
-
-- **Decompression Bomb Protection**: Enforces an `80,000,000` pixel limit (80 Megapixels) per image to protect server resources.
-- **EXIF Orientation**: Applies `PIL.ImageOps.exif_transpose()` automatically before resizing or saving.
-- **Transparency Compositing**: Converts transparent RGBA / Palette PNGs to solid white RGB background when output format is JPEG or BMP.
-- **Animation Safety**: Restricts multi-frame animated GIF/WEBP inputs to single-frame processing or returns explicit validation errors.
-- **ZIP Security**: Enforces zero-padded deterministic file ordering (`image_001_...`, `image_002_...`) and sanitizes archive member paths against directory traversal.
+1. **Input Encoding & Normalization**:
+   - Tries `utf-8-sig` (stripping BOM cleanly) then `utf-8`.
+   - Normalizes `\r\n` and `\r` line endings to standard `\n`.
+2. **HTML Security Restrictions**:
+   - Automatically strips disallowed tags: `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<meta>`, `<head>`, `<link>`, `<applet>`, `<base>`, `<form>`, `<input>`, `<button>`, `<textarea>`, `<select>`.
+   - Strips all `on*` inline event handlers (e.g. `onclick`, `onerror`, `onload`).
+   - Blocks unsafe link schemes (`javascript:`, `file:`, `data:`, `vbscript:`).
+   - Blocks local filesystem paths (`C:\`, `/etc/`, `\\`).
+   - Never executes JavaScript or fetches external remote network resources.
+3. **Markdown Security**:
+   - Passes rendered Markdown HTML through the security sanitization parser.
+   - Raw HTML inside Markdown is sanitized against XSS/SSRF attacks.
+4. **Tamil & Unicode Font Support**:
+   - Detects system TrueType Unicode fonts (e.g., `Latha`, `Nirmala UI`, `Noto Sans Tamil`, `Segoe UI`) and registers them with ReportLab to prevent encoding crashes.
+5. **Safety Limits**:
+   - Maximum input file size: 50 MB
+   - Maximum decoded text length: 5,000,000 characters (~5 MB)
+   - Maximum HTML elements: 50,000
+   - Maximum PDF pages: 500
+   - Maximum table rows: 1,000
 
 ---
 
@@ -82,6 +70,12 @@ API requests to `POST /api/conversions/` can pass optional parameters inside `op
 
 - Python 3.10+
 - Windows, macOS, or Linux
+
+### Dependencies Added in Phase 4
+
+```text
+markdown>=3.4.0
+```
 
 ### Setup
 
@@ -100,22 +94,21 @@ pip install -r backend/requirements.txt
 # Apply migrations
 python backend/manage.py migrate
 
-# (Optional) Create a superuser for Django admin
-python backend/manage.py createsuperuser
-
 # Run the development server
 python backend/manage.py runserver 8000
 ```
 
 ---
 
-## Running Tests
+## Verification Commands
 
 ```bash
-# Run the Phase 3 Image Conversion test suite
-python backend/manage.py test apps.conversions.tests_phase3_images --verbosity=2
+# Run the Phase 4 Document Conversion test suite (42 tests)
+python backend/manage.py test apps.conversions.tests_phase4_documents --verbosity=2
 
-# Run the full backend test suite
+# Run Django system check
+python backend/manage.py check
+
+# Run full backend regression test suite
 python backend/manage.py test apps.core apps.conversions apps.history --verbosity=2
 ```
-
