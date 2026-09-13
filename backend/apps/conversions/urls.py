@@ -1,5 +1,5 @@
 """
-URL patterns for the conversions app — Phase 2.
+URL patterns for the conversions app — Security Hardened.
 """
 
 from django.urls import path
@@ -10,6 +10,7 @@ from apps.conversions.views import (
     ConversionJobDownloadView,
     PdfUtilitiesView,
     OcrUtilitiesView,
+    SecurityDiagnosticsView,
 )
 
 app_name = "conversions"
@@ -18,7 +19,10 @@ urlpatterns = [
     # GET /api/conversions/supported-formats/
     path("supported-formats/", SupportedFormatsView.as_view(), name="supported-formats"),
 
-    # POST /api/conversions/pdf-utilities/ or /api/conversions/pdf/utilities/
+    # GET /api/conversions/security/diagnostics/
+    path("security/diagnostics/", SecurityDiagnosticsView.as_view(), name="security-diagnostics"),
+
+    # POST /api/conversions/pdf/utilities/
     path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
 
     # POST /api/conversions/ocr/
@@ -34,4 +38,3 @@ urlpatterns = [
     # GET /api/conversions/{job_id}/download/
     path("<uuid:job_id>/download/", ConversionJobDownloadView.as_view(), name="job-download"),
 ]
-

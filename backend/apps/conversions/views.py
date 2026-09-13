@@ -1,10 +1,11 @@
 """
-Views for the conversions app — Phase 2.
+Views for the conversions app — Security Hardened.
 
-Changes from Phase 1:
-  - POST /api/conversions/ now calls ConversionService.process_job() synchronously
-    after creating the job, so the response reflects the real conversion status.
-  - GET /api/conversions/{id}/download/ added — protected download endpoint.
+Integrated with:
+  - DRF rate throttles (JobCreateRateThrottle, PdfUtilityRateThrottle, OcrRateThrottle, DownloadRateThrottle).
+  - Session and User ownership enforcement (check_job_ownership, filter_jobs_for_request).
+  - Resource abuse controls (check_concurrent_jobs).
+  - Security diagnostics endpoint (GET /api/v1/security/diagnostics/).
 """
 
 import logging
@@ -24,15 +25,24 @@ from apps.conversions.serializers import (
     ConversionJobSerializer,
 )
 from apps.conversions.services import ConversionService, ConversionServiceError
+from apps.conversions.security import (
+    DownloadRateThrottle,
+    JobCreateRateThrottle,
+    OcrRateThrottle,
+    PdfUtilityRateThrottle,
+    UploadRateThrottle,
+    check_concurrent_jobs,
+    check_job_ownership,
+    filter_jobs_for_request,
+    get_security_diagnostics,
+)
 
 logger = logging.getLogger(__name__)
 
-# MIME type for .docx files
 DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
 
-# Map target format → MIME type for the download response
 FORMAT_CONTENT_TYPES = {
     "docx": DOCX_CONTENT_TYPE,
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -43,33 +53,11 @@ FORMAT_CONTENT_TYPES = {
 }
 
 
-# ── Helper: session key management ────────────────────────────────────────────
-
 def _ensure_session_key(request) -> str:
-    """
-    Ensure the request has an active Django session and return the session key.
-
-    Creates a new session if none exists — this is what issues the velto_session
-    cookie to the browser on first contact.
-    """
+    """Ensure the request has an active Django session and return the session key."""
     if not request.session.session_key:
         request.session.create()
     return request.session.session_key
-
-
-def _filter_jobs_for_request(request):
-    """
-    Return a QuerySet of ConversionJobs the current request is authorised to see.
-
-    Authenticated users see their own jobs (by user FK).
-    Anonymous users see jobs tied to their session key.
-    """
-    if request.user and request.user.is_authenticated:
-        return ConversionJob.objects.filter(user=request.user)
-    session_key = request.session.session_key
-    if not session_key:
-        return ConversionJob.objects.none()
-    return ConversionJob.objects.filter(session_key=session_key, user__isnull=True)
 
 
 # ── Views ──────────────────────────────────────────────────────────────────────
@@ -77,11 +65,8 @@ def _filter_jobs_for_request(request):
 class SupportedFormatsView(APIView):
     """
     GET /api/conversions/supported-formats/
-
     Returns the full list of supported source→target format pairs.
-    No authentication required.
     """
-
     authentication_classes = []
     permission_classes = []
 
@@ -94,16 +79,25 @@ class SupportedFormatsView(APIView):
         )
 
 
+class SecurityDiagnosticsView(APIView):
+    """
+    GET /api/v1/security/diagnostics/
+    Returns non-sensitive status information on active security controls.
+    """
+    def get(self, request):
+        return Response(get_security_diagnostics(), status=status.HTTP_200_OK)
+
+
 class ConversionJobListCreateView(APIView):
     """
     GET  /api/conversions/   — list jobs owned by the current session or user.
     POST /api/conversions/   — upload a file, run conversion, return real status.
     """
-
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [JobCreateRateThrottle, UploadRateThrottle]
 
     def get(self, request):
-        jobs = _filter_jobs_for_request(request)
+        jobs = filter_jobs_for_request(request)
         serializer = ConversionJobSerializer(jobs, many=True)
         return Response(
             {
@@ -113,7 +107,8 @@ class ConversionJobListCreateView(APIView):
         )
 
     def post(self, request):
-        # Support multi-file upload lists passed under 'file' or 'files'
+        check_concurrent_jobs(request)
+
         data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
         file_list = request.FILES.getlist("files") or request.FILES.getlist("file")
         if len(file_list) > 1 and "files" not in data:
@@ -126,7 +121,6 @@ class ConversionJobListCreateView(APIView):
         validated = serializer.validated_data
         session_key = _ensure_session_key(request)
 
-        # ── Create pending job and stage input file ───────────────────────────
         try:
             job = ConversionService.create_job(
                 source_format=validated["source_format"],
@@ -144,16 +138,12 @@ class ConversionJobListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Run the conversion synchronously (Phase 2) ────────────────────────
-        # In Phase 3 this will be dispatched to a Celery worker instead.
         job = ConversionService.process_job(job)
-
-        # ── Return the real status — never fake success ───────────────────────
         output = ConversionJobSerializer(job)
         http_status = (
             status.HTTP_201_CREATED
             if job.status == JobStatus.COMPLETED
-            else status.HTTP_202_ACCEPTED   # pending or failed
+            else status.HTTP_202_ACCEPTED
         )
         return Response(output.data, status=http_status)
 
@@ -161,18 +151,22 @@ class ConversionJobListCreateView(APIView):
 class ConversionJobDetailView(APIView):
     """
     GET /api/conversions/{id}/
-
-    Returns a single job. Anonymous users may only retrieve their own jobs.
+    Returns a single job after validating ownership.
     """
-
     def get(self, request, job_id):
-        jobs = _filter_jobs_for_request(request)
+        jobs = filter_jobs_for_request(request)
         try:
             job = jobs.get(pk=job_id)
+            check_job_ownership(request, job)
         except (ConversionJob.DoesNotExist, ValueError):
             return Response(
                 {"error": True, "message": "Conversion job not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
             )
         serializer = ConversionJobSerializer(job)
         return Response(serializer.data)
@@ -181,29 +175,22 @@ class ConversionJobDetailView(APIView):
 class ConversionJobDownloadView(APIView):
     """
     GET /api/conversions/{id}/download/
-
     Stream the converted output file to the client.
-
-    Security:
-      - Ownership is enforced via _filter_jobs_for_request (session/user).
-      - Only completed jobs with a valid output file on disk are served.
-      - Internal filesystem paths are never exposed in the response.
-      - Content-Disposition uses a sanitised output_filename, not the raw path.
     """
+    throttle_classes = [DownloadRateThrottle]
 
     def get(self, request, job_id):
-        # ── Ownership check ───────────────────────────────────────────────────
-        jobs = _filter_jobs_for_request(request)
+        jobs = filter_jobs_for_request(request)
         try:
             job = jobs.get(pk=job_id)
+            check_job_ownership(request, job)
         except (ConversionJob.DoesNotExist, ValueError):
             return Response(
                 {"error": True, "message": "Conversion job not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # ── Status checks ─────────────────────────────────────────────────────
-        if job.status == JobStatus.PENDING or job.status == JobStatus.PROCESSING:
+        if job.status in (JobStatus.PENDING, JobStatus.PROCESSING):
             return Response(
                 {
                     "error": True,
@@ -230,7 +217,6 @@ class ConversionJobDownloadView(APIView):
                 status=status.HTTP_410_GONE,
             )
 
-        # ── Locate output file ────────────────────────────────────────────────
         output_path = ConversionService.get_job_output(job)
         if output_path is None:
             return Response(
@@ -245,15 +231,12 @@ class ConversionJobDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # ── Build Content-Disposition filename ────────────────────────────────
-        # Use the stored output_filename (already sanitised), fall back to stem of job id.
         download_name = job.output_filename or f"converted_{job.id}.{job.target_format}"
         if download_name.lower().endswith(".zip") or (output_path and output_path.lower().endswith(".zip")):
             content_type = "application/zip"
         else:
             content_type = FORMAT_CONTENT_TYPES.get(job.target_format, "application/octet-stream")
 
-        # ── Stream file ───────────────────────────────────────────────────────
         try:
             response = FileResponse(
                 open(output_path, "rb"),
@@ -275,8 +258,10 @@ class PdfUtilitiesView(APIView):
     POST /api/v1/pdf/utilities/ — Dedicated API endpoint for PDF Utility operations.
     """
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [PdfUtilityRateThrottle, UploadRateThrottle]
 
     def post(self, request):
+        check_concurrent_jobs(request)
         from apps.conversions.formats import ALL_PDF_OPERATIONS
         operation = request.data.get("operation")
         if operation not in ALL_PDF_OPERATIONS:
@@ -297,7 +282,6 @@ class PdfUtilitiesView(APIView):
 
         options = {"operation": operation}
 
-        # Common parameters
         for key in ("split_mode", "pages", "scope", "profile", "position", "color", "text", "password", "user_password", "owner_password", "mode", "title", "author", "subject", "keywords", "creator", "producer", "prefix", "suffix", "format_style"):
             if key in request.data:
                 options[key] = request.data.get(key)
@@ -382,8 +366,10 @@ class OcrUtilitiesView(APIView):
     POST /api/v1/ocr/ — Dedicated API endpoint for OCR Utility operations.
     """
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [OcrRateThrottle, UploadRateThrottle]
 
     def post(self, request):
+        check_concurrent_jobs(request)
         from apps.conversions.formats import ALL_OCR_OPERATIONS
         operation = request.data.get("operation")
         if operation not in ALL_OCR_OPERATIONS:
@@ -468,4 +454,3 @@ class OcrUtilitiesView(APIView):
         output = ConversionJobSerializer(job)
         http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
         return Response(output.data, status=http_status)
-
