@@ -693,4 +693,99 @@ def validate_pdf_utility_input(
         raise
 
 
+# ── OCR Safety Limits ─────────────────────────────────────────────────────────
+MAX_OCR_IMAGE_SIZE = 26_214_400     # 25 MB
+MAX_OCR_PDF_SIZE = 52_428_800       # 50 MB
+MAX_OCR_PDF_PAGES = 100            # 100 max PDF pages for OCR
+MAX_OCR_IMAGE_DIM = 12_000          # 12,000 x 12,000 pixels max image dimensions
+MAX_OCR_TEXT_OUTPUT_SIZE = 26_214_400 # 25 MB max text output size
+
+
+def validate_ocr_input(
+    path: str,
+    is_pdf: bool = False,
+    session_dir: str | None = None,
+    options: dict | None = None,
+) -> None:
+    """
+    Validate input file and options for OCR operations.
+
+    Checks:
+    - File exists, regular file, non-empty.
+    - Workspace containment (if session_dir is provided).
+    - PDF checks (size <= 50MB, magic bytes, unencrypted, pages <= 100).
+    - Image checks (size <= 25MB, dimensions <= 12000x12000 px).
+    - Option checks (DPI, PSM).
+    """
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        raise ConversionError(f"invalid_file: Input file '{p.name}' does not exist or is not a regular file.")
+
+    if session_dir:
+        resolved_session = Path(session_dir).resolve()
+        resolved_file = p.resolve()
+        try:
+            resolved_file.relative_to(resolved_session)
+        except ValueError:
+            raise ConversionError(f"invalid_file: Input file '{p.name}' is outside the authorized session directory.")
+
+    file_size = p.stat().st_size
+    if file_size == 0:
+        raise ConversionError(f"invalid_file: Input file '{p.name}' is empty (0 bytes).")
+
+    if is_pdf:
+        if file_size > MAX_OCR_PDF_SIZE:
+            raise ConversionError(f"file_size_exceeded: PDF file size ({file_size // (1024*1024)} MB) exceeds maximum limit of {MAX_OCR_PDF_SIZE // (1024*1024)} MB.")
+        validate_pdf_signature(path)
+        import fitz
+        try:
+            doc = fitz.open(path)
+        except Exception as exc:
+            raise ConversionError(f"corrupted_pdf: File '{p.name}' is corrupted or unreadable.") from exc
+
+        try:
+            if doc.is_encrypted:
+                raise ConversionError(f"encrypted_pdf: PDF file '{p.name}' is password protected.")
+            page_count = len(doc)
+            if page_count < 1:
+                raise ConversionError(f"corrupted_pdf: PDF file '{p.name}' contains no readable pages.")
+            if page_count > MAX_OCR_PDF_PAGES:
+                raise ConversionError(f"page_count_exceeded: PDF page count ({page_count}) exceeds maximum OCR limit of {MAX_OCR_PDF_PAGES} pages.")
+        finally:
+            doc.close()
+    else:
+        if file_size > MAX_OCR_IMAGE_SIZE:
+            raise ConversionError(f"file_size_exceeded: Image file size ({file_size // (1024*1024)} MB) exceeds maximum limit of {MAX_OCR_IMAGE_SIZE // (1024*1024)} MB.")
+        from PIL import Image
+        try:
+            with Image.open(path) as img:
+                w, h = img.size
+                if w > MAX_OCR_IMAGE_DIM or h > MAX_OCR_IMAGE_DIM:
+                    raise ConversionError(f"image_dimensions_exceeded: Image dimensions ({w}x{h}) exceed maximum limit of {MAX_OCR_IMAGE_DIM}x{MAX_OCR_IMAGE_DIM} pixels.")
+        except ConversionError:
+            raise
+        except Exception as exc:
+            raise ConversionError(f"invalid_image: File '{p.name}' is not a valid or readable image file.") from exc
+
+    opts = options or {}
+    if "dpi" in opts and opts["dpi"] is not None:
+        try:
+            dpi_val = int(opts["dpi"])
+            if dpi_val < 72 or dpi_val > 600:
+                raise ConversionError("invalid_dpi: DPI option must be an integer between 72 and 600.")
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_dpi: DPI option must be an integer between 72 and 600.")
+
+    if "page_segmentation_mode" in opts or "psm" in opts:
+        raw_psm = opts.get("page_segmentation_mode", opts.get("psm"))
+        if raw_psm is not None:
+            try:
+                psm_val = int(raw_psm)
+                if psm_val < 0 or psm_val > 13:
+                    raise ConversionError("invalid_psm: Page segmentation mode (PSM) must be an integer between 0 and 13.")
+            except (ValueError, TypeError):
+                raise ConversionError("invalid_psm: Page segmentation mode (PSM) must be an integer between 0 and 13.")
+
+
+
 

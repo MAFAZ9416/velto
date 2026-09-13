@@ -9,6 +9,7 @@ from apps.conversions.views import (
     ConversionJobDetailView,
     ConversionJobDownloadView,
     PdfUtilitiesView,
+    OcrUtilitiesView,
 )
 
 app_name = "conversions"
@@ -19,6 +20,9 @@ urlpatterns = [
 
     # POST /api/conversions/pdf-utilities/ or /api/conversions/pdf/utilities/
     path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
+
+    # POST /api/conversions/ocr/
+    path("ocr/", OcrUtilitiesView.as_view(), name="ocr-utilities"),
 
     # GET  /api/conversions/
     # POST /api/conversions/

@@ -166,6 +166,15 @@ ALL_PDF_OPERATIONS = (
     "pdf_repair",
 )
 
+ALL_OCR_OPERATIONS = (
+    "ocr_image_to_searchable_pdf",
+    "ocr_image_to_txt",
+    "ocr_pdf_to_txt",
+    "ocr_scanned_pdf_to_searchable_pdf",
+)
+
+IMAGE_FORMATS = {FORMAT_JPG, FORMAT_PNG, FORMAT_WEBP, FORMAT_BMP, FORMAT_TIFF}
+
 
 def is_valid_conversion(source_format: str, target_format: str, options: dict | None = None) -> bool:
     """Return True if the given source→target pair (and optional operation) is supported."""
@@ -175,6 +184,15 @@ def is_valid_conversion(source_format: str, target_format: str, options: dict | 
         op = options.get("operation")
         if source_format == "pdf" and op in ALL_PDF_OPERATIONS:
             return True
+        if op in ALL_OCR_OPERATIONS:
+            if op == "ocr_image_to_searchable_pdf" and source_format in IMAGE_FORMATS and target_format == FORMAT_PDF:
+                return True
+            if op == "ocr_image_to_txt" and source_format in IMAGE_FORMATS and target_format == FORMAT_TXT:
+                return True
+            if op == "ocr_pdf_to_txt" and source_format == FORMAT_PDF and target_format == FORMAT_TXT:
+                return True
+            if op == "ocr_scanned_pdf_to_searchable_pdf" and source_format == FORMAT_PDF and target_format == FORMAT_PDF:
+                return True
     return False
 
 

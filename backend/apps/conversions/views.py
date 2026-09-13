@@ -376,3 +376,96 @@ class PdfUtilitiesView(APIView):
         http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
         return Response(output.data, status=http_status)
 
+
+class OcrUtilitiesView(APIView):
+    """
+    POST /api/v1/ocr/ — Dedicated API endpoint for OCR Utility operations.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        from apps.conversions.formats import ALL_OCR_OPERATIONS
+        operation = request.data.get("operation")
+        if operation not in ALL_OCR_OPERATIONS:
+            return Response(
+                {
+                    "error": True,
+                    "message": f"unsupported_operation: Invalid or missing OCR operation. Supported: {', '.join(ALL_OCR_OPERATIONS)}.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response(
+                {"error": True, "message": "invalid_file: An uploaded input file ('file') is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filename = file_obj.name.lower()
+        if operation == "ocr_image_to_searchable_pdf":
+            ext = Path(filename).suffix.lstrip(".")
+            source_format = ext if ext in ("jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif") else "jpg"
+            if source_format in ("jpeg", "tif"):
+                source_format = "jpg" if source_format == "jpeg" else "tiff"
+            target_format = "pdf"
+        elif operation == "ocr_image_to_txt":
+            ext = Path(filename).suffix.lstrip(".")
+            source_format = ext if ext in ("jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif") else "jpg"
+            if source_format in ("jpeg", "tif"):
+                source_format = "jpg" if source_format == "jpeg" else "tiff"
+            target_format = "txt"
+        elif operation == "ocr_pdf_to_txt":
+            source_format = "pdf"
+            target_format = "txt"
+        elif operation == "ocr_scanned_pdf_to_searchable_pdf":
+            source_format = "pdf"
+            target_format = "pdf"
+        else:
+            return Response(
+                {"error": True, "message": "unsupported_operation: Invalid OCR operation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        options = {"operation": operation}
+
+        for key in ("language", "preserve_layout"):
+            if key in request.data:
+                options[key] = request.data.get(key)
+
+        if "dpi" in request.data:
+            try:
+                options["dpi"] = int(request.data.get("dpi"))
+            except (ValueError, TypeError):
+                pass
+
+        if "page_segmentation_mode" in request.data or "psm" in request.data:
+            psm_val = request.data.get("page_segmentation_mode", request.data.get("psm"))
+            try:
+                options["page_segmentation_mode"] = int(psm_val)
+                options["psm"] = int(psm_val)
+            except (ValueError, TypeError):
+                pass
+
+        session_key = _ensure_session_key(request)
+
+        try:
+            job = ConversionService.create_job(
+                source_format=source_format,
+                target_format=target_format,
+                uploaded_file=file_obj,
+                options=options,
+                session_key=session_key,
+                user=request.user if request.user.is_authenticated else None,
+            )
+        except ConversionServiceError as exc:
+            return Response(
+                {"error": True, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        job = ConversionService.process_job(job)
+        output = ConversionJobSerializer(job)
+        http_status = status.HTTP_201_CREATED if job.status == JobStatus.COMPLETED else status.HTTP_202_ACCEPTED
+        return Response(output.data, status=http_status)
+

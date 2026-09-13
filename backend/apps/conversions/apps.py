@@ -98,10 +98,37 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(PdfPageNumbersEngine)
         engine_registry.register(PdfRepairEngine)
 
+        from apps.conversions.engines.ocr_engine import (
+            OcrImageToSearchablePdfEngine,
+            OcrImageToTxtEngine,
+            OcrPdfToTxtEngine,
+            OcrScannedPdfToSearchablePdfEngine,
+        )
+
         # Register Image engines
         engine_registry.register(JpgToPngEngine)
         engine_registry.register(PngToJpgEngine)
         engine_registry.register(ImagesToZipEngine)
+
+        # Register OCR engines for all image formats + PDF
+        image_formats = ["jpg", "png", "webp", "bmp", "tiff"]
+        for img_fmt in image_formats:
+            cls_pdf = type(
+                f"Ocr{img_fmt.capitalize()}ToSearchablePdfEngine",
+                (OcrImageToSearchablePdfEngine,),
+                {"source_format": img_fmt, "target_format": "pdf", "operation": "ocr_image_to_searchable_pdf"},
+            )
+            engine_registry.register(cls_pdf)
+
+            cls_txt = type(
+                f"Ocr{img_fmt.capitalize()}ToTxtEngine",
+                (OcrImageToTxtEngine,),
+                {"source_format": img_fmt, "target_format": "txt", "operation": "ocr_image_to_txt"},
+            )
+            engine_registry.register(cls_txt)
+
+        engine_registry.register(OcrPdfToTxtEngine)
+        engine_registry.register(OcrScannedPdfToSearchablePdfEngine)
 
         # Register remaining generic image conversion pairs
         image_formats = {"jpg", "png", "webp", "bmp", "tiff", "gif"}
