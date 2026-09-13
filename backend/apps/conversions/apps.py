@@ -51,6 +51,12 @@ class ConversionsConfig(AppConfig):
             PdfExtractPagesEngine,
             PdfRotateEngine,
             PdfCompressEngine,
+            PdfWatermarkEngine,
+            PdfProtectEngine,
+            PdfUnlockEngine,
+            PdfMetadataEngine,
+            PdfPageNumbersEngine,
+            PdfRepairEngine,
         )
 
         engine_registry.register(PdfToDocxEngine)
@@ -85,6 +91,12 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(PdfExtractPagesEngine)
         engine_registry.register(PdfRotateEngine)
         engine_registry.register(PdfCompressEngine)
+        engine_registry.register(PdfWatermarkEngine)
+        engine_registry.register(PdfProtectEngine)
+        engine_registry.register(PdfUnlockEngine)
+        engine_registry.register(PdfMetadataEngine)
+        engine_registry.register(PdfPageNumbersEngine)
+        engine_registry.register(PdfRepairEngine)
 
         # Register Image engines
         engine_registry.register(JpgToPngEngine)

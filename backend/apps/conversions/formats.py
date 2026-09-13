@@ -152,13 +152,28 @@ SUPPORTED_PAIRS: list[tuple[str, str]] = [
 SUPPORTED_PAIRS_SET: set[tuple[str, str]] = set(SUPPORTED_PAIRS)
 
 
+ALL_PDF_OPERATIONS = (
+    "pdf_merge",
+    "pdf_split",
+    "pdf_extract_pages",
+    "pdf_rotate",
+    "pdf_compress",
+    "pdf_watermark",
+    "pdf_protect",
+    "pdf_unlock",
+    "pdf_metadata",
+    "pdf_page_numbers",
+    "pdf_repair",
+)
+
+
 def is_valid_conversion(source_format: str, target_format: str, options: dict | None = None) -> bool:
     """Return True if the given source→target pair (and optional operation) is supported."""
     if (source_format, target_format) in SUPPORTED_PAIRS_SET:
         return True
     if options and isinstance(options, dict):
         op = options.get("operation")
-        if source_format == "pdf" and op in ("pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate", "pdf_compress"):
+        if source_format == "pdf" and op in ALL_PDF_OPERATIONS:
             return True
     return False
 

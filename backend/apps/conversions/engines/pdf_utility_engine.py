@@ -494,3 +494,502 @@ class PdfCompressEngine(BaseConversionEngine):
         return output_path
 
 
+# ── PDF Watermark Engine ──────────────────────────────────────────────────────
+
+class PdfWatermarkEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_watermark"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+        text = opts.get("text")
+        if not text or not isinstance(text, str) or not text.strip():
+            raise ConversionError("watermark_text_required: Watermark text 'text' option is required.")
+
+        text = text.strip()
+        if len(text) > 500:
+            raise ConversionError("watermark_text_too_long: Watermark text must not exceed 500 characters.")
+
+        raw_scope = opts.get("scope", "all")
+        scope = str(raw_scope).lower().strip() if raw_scope else "all"
+        if scope not in ("all", "selected"):
+            raise ConversionError(f"invalid_scope: Invalid scope '{raw_scope}'. Must be 'all' or 'selected'.")
+
+        pages_expr = opts.get("pages")
+        if scope == "selected" and not pages_expr:
+            raise ConversionError("pages_required: Page range selection 'pages' is required when scope is 'selected'.")
+
+        position = str(opts.get("position", "center")).lower().strip()
+        valid_positions = ("top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right")
+        if position not in valid_positions:
+            raise ConversionError(f"invalid_position: Position must be one of {', '.join(valid_positions)}.")
+
+        try:
+            opacity = float(opts.get("opacity", 0.3))
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_opacity: Opacity must be a number between 0.0 and 1.0.")
+        if opacity < 0.0 or opacity > 1.0:
+            raise ConversionError(f"invalid_opacity: Opacity {opacity} is out of bounds [0.0, 1.0].")
+
+        try:
+            rotation = float(opts.get("rotation", 45.0))
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_rotation: Rotation must be a number.")
+        if rotation < -360.0 or rotation > 360.0:
+            raise ConversionError(f"invalid_rotation: Rotation angle {rotation} is out of bounds [-360, 360].")
+
+        try:
+            font_size = float(opts.get("font_size", 36.0))
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_font_size: Font size must be a number.")
+        if font_size < 8.0 or font_size > 144.0:
+            raise ConversionError(f"invalid_font_size: Font size {font_size} is out of bounds [8, 144].")
+
+        hex_color = str(opts.get("color", "#808080")).strip()
+        color_tuple = self._parse_hex_color(hex_color)
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        total_pages = len(src_doc)
+        input_rects = [src_doc[i].rect for i in range(total_pages)]
+
+        try:
+            if scope == "all":
+                target_indices = set(range(total_pages))
+            else:
+                target_indices = set(parse_page_range(pages_expr, total_pages, allow_duplicates=False))
+
+            for idx in target_indices:
+                page = src_doc[idx]
+                rect = page.rect
+                w, h = rect.width, rect.height
+
+                if position == "top-left":
+                    pt = fitz.Point(rect.x0 + 36, rect.y0 + 36 + font_size)
+                elif position == "top-center":
+                    pt = fitz.Point(rect.x0 + w / 2, rect.y0 + 36 + font_size)
+                elif position == "top-right":
+                    pt = fitz.Point(rect.x0 + w - 36, rect.y0 + 36 + font_size)
+                elif position == "bottom-left":
+                    pt = fitz.Point(rect.x0 + 36, rect.y0 + h - 36)
+                elif position == "bottom-center":
+                    pt = fitz.Point(rect.x0 + w / 2, rect.y0 + h - 36)
+                elif position == "bottom-right":
+                    pt = fitz.Point(rect.x0 + w - 36, rect.y0 + h - 36)
+                else:  # center
+                    pt = fitz.Point(rect.x0 + w / 2, rect.y0 + h / 2)
+
+                kwargs = {
+                    "fontsize": font_size,
+                    "color": color_tuple,
+                    "fill_opacity": opacity,
+                    "overlay": True,
+                }
+                rot_int = int(rotation)
+                if rot_int in (0, 90, 180, 270) and float(rot_int) == rotation:
+                    kwargs["rotate"] = rot_int
+                else:
+                    kwargs["morph"] = (pt, fitz.Matrix(rotation))
+
+                page.insert_text(pt, text, **kwargs)
+
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            src_doc.save(output_path, garbage=4, deflate=True)
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfWatermarkEngine failed: %s", exc)
+            raise ConversionError("pdf_watermark_failed: Failed to apply watermark to PDF.") from exc
+        finally:
+            src_doc.close()
+
+        validate_pdf_output(output_path)
+
+        out_doc = fitz.open(output_path)
+        try:
+            if len(out_doc) != total_pages:
+                raise ConversionError(f"corrupted_pdf: Watermarked PDF page count ({len(out_doc)}) does not match input ({total_pages}).")
+            for idx in range(total_pages):
+                in_rect = input_rects[idx]
+                out_rect = out_doc[idx].rect
+                if abs(in_rect.width - out_rect.width) > 1.0 or abs(in_rect.height - out_rect.height) > 1.0:
+                    raise ConversionError(f"corrupted_pdf: Page {idx+1} dimensions changed during watermarking.")
+        finally:
+            out_doc.close()
+
+        return output_path
+
+    @staticmethod
+    def _parse_hex_color(color_str: str) -> tuple[float, float, float]:
+        cs = color_str.lstrip("#")
+        if len(cs) == 3:
+            cs = "".join(c * 2 for c in cs)
+        if len(cs) != 6:
+            return (0.5, 0.5, 0.5)
+        try:
+            r = int(cs[0:2], 16) / 255.0
+            g = int(cs[2:4], 16) / 255.0
+            b = int(cs[4:6], 16) / 255.0
+            return (r, g, b)
+        except ValueError:
+            return (0.5, 0.5, 0.5)
+
+
+# ── PDF Password Protect Engine ───────────────────────────────────────────────
+
+class PdfProtectEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_protect"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+        password = opts.get("password") or opts.get("user_password")
+        if not password or not isinstance(password, str):
+            raise ConversionError("password_required: Password parameter 'password' is required.")
+
+        owner_password = opts.get("owner_password") or password
+        if not isinstance(owner_password, str):
+            owner_password = password
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1, allow_encrypted=False)
+        src_doc = docs[0]
+
+        try:
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            perm = opts.get("permissions")
+            perm_int = int(perm) if perm is not None and str(perm).isdigit() else -1
+
+            src_doc.save(
+                output_path,
+                encryption=fitz.PDF_ENCRYPT_AES_256,
+                user_pw=password,
+                owner_pw=owner_password,
+                permissions=perm_int,
+                garbage=4,
+                deflate=True,
+            )
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfProtectEngine failed: %s", exc)
+            raise ConversionError("pdf_protect_failed: Failed to protect PDF document.") from exc
+        finally:
+            src_doc.close()
+
+        # Redact plaintext password fields from options
+        for pw_key in ("password", "user_password", "owner_password"):
+            if pw_key in opts:
+                opts[pw_key] = "[REDACTED]"
+
+        validate_pdf_output(output_path, allow_encrypted=True)
+
+        check_doc = fitz.open(output_path)
+        try:
+            if not check_doc.is_encrypted:
+                raise ConversionError("pdf_protect_failed: Output PDF file is not encrypted.")
+            auth_result = check_doc.authenticate(password)
+            if auth_result == 0:
+                raise ConversionError("pdf_protect_failed: Output PDF password verification failed.")
+        finally:
+            check_doc.close()
+
+        return output_path
+
+
+# ── PDF Password Unlock Engine ────────────────────────────────────────────────
+
+class PdfUnlockEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_unlock"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+        password = opts.get("password") or opts.get("user_password")
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1, allow_encrypted=True)
+        src_doc = docs[0]
+
+        try:
+            if src_doc.is_encrypted:
+                if not password or not isinstance(password, str):
+                    raise ConversionError("password_required: Password is required to unlock this encrypted PDF.")
+
+                auth_result = src_doc.authenticate(password)
+                if auth_result == 0:
+                    raise ConversionError("invalid_password: The provided password is incorrect for this encrypted PDF.")
+
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            src_doc.save(output_path, garbage=4, deflate=True)
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfUnlockEngine failed: %s", exc)
+            raise ConversionError("pdf_unlock_failed: Failed to unlock PDF document.") from exc
+        finally:
+            src_doc.close()
+
+        # Redact plaintext password fields
+        for pw_key in ("password", "user_password", "owner_password"):
+            if pw_key in opts:
+                opts[pw_key] = "[REDACTED]"
+
+        validate_pdf_output(output_path, allow_encrypted=False)
+
+        check_doc = fitz.open(output_path)
+        try:
+            if check_doc.is_encrypted:
+                raise ConversionError("pdf_unlock_failed: Output PDF is still encrypted.")
+        finally:
+            check_doc.close()
+
+        return output_path
+
+
+# ── PDF Metadata Editor Engine ────────────────────────────────────────────────
+
+class PdfMetadataEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_metadata"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    ALLOWED_FIELDS = ("title", "author", "subject", "keywords", "creator", "producer")
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+        mode = str(opts.get("mode", "write")).lower().strip()
+        if mode not in ("read", "write"):
+            raise ConversionError(f"invalid_mode: Invalid metadata mode '{mode}'. Must be 'read' or 'write'.")
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        total_pages = len(src_doc)
+
+        try:
+            existing_meta = src_doc.metadata or {}
+
+            if mode == "write":
+                updated_meta = dict(existing_meta)
+                for field in self.ALLOWED_FIELDS:
+                    if field in opts:
+                        val = opts.get(field)
+                        if val is None:
+                            val = ""
+                        val_str = str(val).strip()
+                        if len(val_str) > 500:
+                            raise ConversionError(f"metadata_field_too_long: Metadata field '{field}' exceeds max length of 500 characters.")
+                        val_str = "".join(c for c in val_str if ord(c) >= 32 or c in "\n\r\t")
+                        updated_meta[field] = val_str
+
+                src_doc.set_metadata(updated_meta)
+
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            src_doc.save(output_path, garbage=4, deflate=True)
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfMetadataEngine failed: %s", exc)
+            raise ConversionError("pdf_metadata_failed: Failed to process PDF metadata.") from exc
+        finally:
+            src_doc.close()
+
+        validate_pdf_output(output_path)
+
+        out_doc = fitz.open(output_path)
+        try:
+            if len(out_doc) != total_pages:
+                raise ConversionError("corrupted_pdf: PDF page count changed during metadata processing.")
+            meta_result = dict(out_doc.metadata or {})
+            opts["result_metadata"] = {
+                "mode": mode,
+                "title": meta_result.get("title", ""),
+                "author": meta_result.get("author", ""),
+                "subject": meta_result.get("subject", ""),
+                "keywords": meta_result.get("keywords", ""),
+                "creator": meta_result.get("creator", ""),
+                "producer": meta_result.get("producer", ""),
+            }
+        finally:
+            out_doc.close()
+
+        return output_path
+
+
+# ── PDF Page Numbering Engine ─────────────────────────────────────────────────
+
+class PdfPageNumbersEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_page_numbers"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+        raw_scope = opts.get("scope", "all")
+        scope = str(raw_scope).lower().strip() if raw_scope else "all"
+        if scope not in ("all", "selected"):
+            raise ConversionError(f"invalid_scope: Invalid scope '{raw_scope}'. Must be 'all' or 'selected'.")
+
+        pages_expr = opts.get("pages")
+        if scope == "selected" and not pages_expr:
+            raise ConversionError("pages_required: Page range selection 'pages' is required when scope is 'selected'.")
+
+        position = str(opts.get("position", "bottom-center")).lower().strip()
+        valid_positions = ("top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right")
+        if position not in valid_positions:
+            raise ConversionError(f"invalid_position: Position must be one of {', '.join(valid_positions)}.")
+
+        try:
+            start_number = int(opts.get("start_number", 1))
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_start_number: start_number must be an integer >= 1.")
+        if start_number < 1:
+            raise ConversionError("invalid_start_number: start_number must be an integer >= 1.")
+
+        prefix = str(opts.get("prefix", ""))
+        suffix = str(opts.get("suffix", ""))
+        if len(prefix) > 50 or len(suffix) > 50:
+            raise ConversionError("text_too_long: Prefix and suffix strings must not exceed 50 characters.")
+
+        format_style = str(opts.get("format_style", "number")).lower().strip()
+        if format_style not in ("number", "total"):
+            format_style = "number"
+
+        try:
+            font_size = float(opts.get("font_size", 10.0))
+        except (ValueError, TypeError):
+            raise ConversionError("invalid_font_size: Font size must be a number.")
+        if font_size < 8.0 or font_size > 72.0:
+            raise ConversionError(f"invalid_font_size: Font size {font_size} is out of bounds [8, 72].")
+
+        hex_color = str(opts.get("color", "#000000")).strip()
+        color_tuple = PdfWatermarkEngine._parse_hex_color(hex_color)
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        total_pages = len(src_doc)
+
+        try:
+            if scope == "all":
+                target_indices = list(range(total_pages))
+            else:
+                target_indices = parse_page_range(pages_expr, total_pages, allow_duplicates=False)
+
+            for order_idx, page_idx in enumerate(target_indices):
+                page = src_doc[page_idx]
+                rect = page.rect
+                w, h = rect.width, rect.height
+
+                curr_num = start_number + order_idx
+                if format_style == "total":
+                    label_text = f"{prefix}{curr_num} of {total_pages}{suffix}"
+                else:
+                    label_text = f"{prefix}{curr_num}{suffix}".replace("{total}", str(total_pages))
+
+                if position == "top-left":
+                    pt = fitz.Point(rect.x0 + 36, rect.y0 + 24)
+                elif position == "top-center":
+                    pt = fitz.Point(rect.x0 + w / 2, rect.y0 + 24)
+                elif position == "top-right":
+                    pt = fitz.Point(rect.x0 + w - 36, rect.y0 + 24)
+                elif position == "bottom-left":
+                    pt = fitz.Point(rect.x0 + 36, rect.y0 + h - 24)
+                elif position == "bottom-right":
+                    pt = fitz.Point(rect.x0 + w - 36, rect.y0 + h - 24)
+                else:  # bottom-center
+                    pt = fitz.Point(rect.x0 + w / 2, rect.y0 + h - 24)
+
+                page.insert_text(
+                    pt,
+                    label_text,
+                    fontsize=font_size,
+                    color=color_tuple,
+                    overlay=True,
+                )
+
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            src_doc.save(output_path, garbage=4, deflate=True)
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfPageNumbersEngine failed: %s", exc)
+            raise ConversionError("pdf_page_numbers_failed: Failed to add page numbers to PDF.") from exc
+        finally:
+            src_doc.close()
+
+        validate_pdf_output(output_path)
+        return output_path
+
+
+# ── PDF Repair & Validation Engine ────────────────────────────────────────────
+
+class PdfRepairEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_repair"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        initial_page_count = len(src_doc)
+        initial_rects = [src_doc[i].rect for i in range(initial_page_count)]
+
+        try:
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            # Rebuild document structure safely
+            src_doc.save(output_path, garbage=4, deflate=True, clean=True)
+            repair_status = "valid"
+        except Exception as exc:
+            logger.error("PdfRepairEngine failed: %s", exc)
+            raise ConversionError("pdf_repair_failed: PDF is irrecoverably corrupt and cannot be repaired.") from exc
+        finally:
+            src_doc.close()
+
+        validate_pdf_output(output_path)
+
+        out_doc = fitz.open(output_path)
+        try:
+            final_page_count = len(out_doc)
+            if final_page_count != initial_page_count:
+                raise ConversionError(f"repair_validation_failed: Repaired PDF page count ({final_page_count}) differs from original ({initial_page_count}).")
+
+            for idx in range(final_page_count):
+                in_r = initial_rects[idx]
+                out_r = out_doc[idx].rect
+                if abs(in_r.width - out_r.width) > 1.0 or abs(in_r.height - out_r.height) > 1.0:
+                    raise ConversionError(f"repair_validation_failed: Page {idx+1} dimensions altered during repair.")
+                _ = out_doc[idx].get_text()
+
+            opts["result_metadata"] = {
+                "repair_status": repair_status,
+                "initial_page_count": initial_page_count,
+                "final_page_count": final_page_count,
+            }
+        finally:
+            out_doc.close()
+
+        return output_path

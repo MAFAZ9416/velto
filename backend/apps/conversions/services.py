@@ -173,17 +173,23 @@ class ConversionService:
         else:
             raise ConversionServiceError("No uploaded file provided.")
 
+        db_options = dict(options)
+        for pw_key in ("password", "user_password", "owner_password"):
+            if pw_key in db_options and db_options[pw_key]:
+                db_options[pw_key] = "[REDACTED]"
+
         job = ConversionJob.objects.create(
             user=user,
             session_key=session_key or "",
             source_format=source_format,
             target_format=target_format,
-            options=options,
+            options=db_options,
             status=JobStatus.PENDING,
             original_filename=orig_filename,
             file_size_bytes=total_bytes,
             input_path=staged_path,       # saved so process_job() can find it
         )
+        job._runtime_options = dict(options)
 
         logger.info(
             "Created ConversionJob %s (%s→%s) input: %s",
@@ -256,11 +262,12 @@ class ConversionService:
         # ── Run engine ──────────────────────────────────────────────────────
         engine = engine_cls()
         result_path = None
+        runtime_opts = getattr(job, "_runtime_options", None) or job.options
         try:
             import inspect
             sig = inspect.signature(engine.convert)
             if "options" in sig.parameters:
-                result_path = engine.convert(job.input_path, output_path, options=job.options)
+                result_path = engine.convert(job.input_path, output_path, options=runtime_opts)
             else:
                 result_path = engine.convert(job.input_path, output_path)
 
@@ -296,6 +303,12 @@ class ConversionService:
 
         # ── Mark COMPLETED ──────────────────────────────────────────────────
         output_size = Path(output_path).stat().st_size
+        updated_opts = dict(runtime_opts)
+        for pw_key in ("password", "user_password", "owner_password"):
+            if pw_key in updated_opts:
+                updated_opts[pw_key] = "[REDACTED]"
+        job.options = updated_opts
+
         with transaction.atomic():
             job.status = JobStatus.COMPLETED
             job.completed_at = timezone.now()

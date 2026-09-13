@@ -25,8 +25,14 @@ from apps.conversions.engines.pdf_utility_engine import (
     PdfCompressEngine,
     PdfExtractPagesEngine,
     PdfMergeEngine,
+    PdfMetadataEngine,
+    PdfPageNumbersEngine,
+    PdfProtectEngine,
+    PdfRepairEngine,
     PdfRotateEngine,
     PdfSplitEngine,
+    PdfUnlockEngine,
+    PdfWatermarkEngine,
 )
 from apps.conversions.engines.validators import (
     validate_pdf_utility_input,
@@ -416,7 +422,7 @@ class PdfUtilitiesApiIntegrationTestCase(TestCase):
         response = self.client.post(
             url,
             {
-                "operation": "pdf_watermark",
+                "operation": "invalid_pdf_operation_xyz",
                 "file": file1,
             },
             format="multipart",
@@ -722,3 +728,381 @@ class PdfCompressEngineTestCase(TestCase):
             self.assertFalse(meta["compression_reduced_size"])
         else:
             self.assertTrue(meta["compression_reduced_size"])
+
+
+class PdfWatermarkEngineTestCase(TestCase):
+    """Unit tests for PdfWatermarkEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_watermark_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "watermark_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=3, text_prefix="WatermarkDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_watermark_all_pages_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_wm_all.pdf")
+        engine = PdfWatermarkEngine()
+        opts = {
+            "text": "CONFIDENTIAL",
+            "position": "center",
+            "opacity": 0.5,
+            "rotation": 45,
+            "font_size": 40,
+            "color": "#FF0000",
+        }
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        for page in doc:
+            self.assertIn("WatermarkDoc", page.get_text())
+        doc.close()
+
+    def test_watermark_selected_pages_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_wm_selected.pdf")
+        engine = PdfWatermarkEngine()
+        opts = {
+            "text": "DRAFT",
+            "scope": "selected",
+            "pages": "1,3",
+            "position": "top-center",
+        }
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        doc.close()
+
+    def test_watermark_unicode_tamil_text(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_wm_tamil.pdf")
+        engine = PdfWatermarkEngine()
+        opts = {"text": "ரகசியம்", "position": "center"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        doc.close()
+
+    def test_watermark_invalid_options(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_wm_err.pdf")
+        engine = PdfWatermarkEngine()
+
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"text": ""})
+        self.assertIn("watermark_text_required", str(ctx.exception))
+
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"text": "A" * 501})
+        self.assertIn("watermark_text_too_long", str(ctx.exception))
+
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"text": "OK", "opacity": 1.5})
+        self.assertIn("invalid_opacity", str(ctx.exception))
+
+
+class PdfProtectEngineTestCase(TestCase):
+    """Unit tests for PdfProtectEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_protect_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "protect_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=2, text_prefix="ProtectDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_protect_pdf_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_protected.pdf")
+        engine = PdfProtectEngine()
+        opts = {"password": "SecretPassword123"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertTrue(doc.is_encrypted)
+        auth_res = doc.authenticate("SecretPassword123")
+        self.assertGreater(auth_res, 0)
+        self.assertEqual(len(doc), 2)
+        doc.close()
+
+        # Check options redaction
+        self.assertEqual(opts.get("password"), "[REDACTED]")
+
+    def test_protect_missing_password_error(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_prot_err.pdf")
+        engine = PdfProtectEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={})
+        self.assertIn("password_required", str(ctx.exception))
+
+
+class PdfUnlockEngineTestCase(TestCase):
+    """Unit tests for PdfUnlockEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_unlock_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "unlock_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=2, text_prefix="UnlockDoc")
+
+        # Create protected PDF
+        self.protected_pdf = os.path.join(self.temp_dir.name, "protected.pdf")
+        prot_engine = PdfProtectEngine()
+        prot_engine.convert(self.src_pdf, self.protected_pdf, options={"password": "MySecretPass"})
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_unlock_pdf_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_unlocked.pdf")
+        engine = PdfUnlockEngine()
+        opts = {"password": "MySecretPass"}
+        res = engine.convert(self.protected_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertFalse(doc.is_encrypted)
+        self.assertEqual(len(doc), 2)
+        self.assertIn("UnlockDoc", doc[0].get_text())
+        doc.close()
+
+        self.assertEqual(opts.get("password"), "[REDACTED]")
+
+    def test_unlock_pdf_wrong_password_error(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_unlock_err.pdf")
+        engine = PdfUnlockEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.protected_pdf, out_pdf, options={"password": "WrongPassword"})
+        self.assertIn("invalid_password", str(ctx.exception))
+
+
+class PdfMetadataEngineTestCase(TestCase):
+    """Unit tests for PdfMetadataEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_meta_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "meta_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=2, text_prefix="MetaDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_write_and_read_metadata_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_meta.pdf")
+        engine = PdfMetadataEngine()
+        opts = {
+            "mode": "write",
+            "title": "My Custom Title",
+            "author": "John Doe",
+            "subject": "Testing VELTO Metadata",
+            "keywords": "pdf, metadata, conversion",
+            "creator": "VELTO Engine",
+        }
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        meta = doc.metadata
+        self.assertEqual(meta["title"], "My Custom Title")
+        self.assertEqual(meta["author"], "John Doe")
+        self.assertEqual(meta["subject"], "Testing VELTO Metadata")
+        self.assertEqual(meta["keywords"], "pdf, metadata, conversion")
+        self.assertEqual(meta["creator"], "VELTO Engine")
+        doc.close()
+
+    def test_metadata_read_mode(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_meta_read.pdf")
+        engine = PdfMetadataEngine()
+        opts = {"mode": "read"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+        self.assertIsNotNone(opts.get("result_metadata"))
+
+
+class PdfPageNumbersEngineTestCase(TestCase):
+    """Unit tests for PdfPageNumbersEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_pgnum_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "pgnum_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=4, text_prefix="PageNumDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_page_numbers_all_pages(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_pgnum_all.pdf")
+        engine = PdfPageNumbersEngine()
+        opts = {
+            "scope": "all",
+            "position": "bottom-center",
+            "start_number": 1,
+            "prefix": "Page ",
+            "format_style": "total",
+        }
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        doc.close()
+
+    def test_page_numbers_selected_pages(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_pgnum_sel.pdf")
+        engine = PdfPageNumbersEngine()
+        opts = {
+            "scope": "selected",
+            "pages": "2,4",
+            "position": "bottom-right",
+            "prefix": "P.",
+        }
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        doc.close()
+
+
+class PdfRepairEngineTestCase(TestCase):
+    """Unit tests for PdfRepairEngine."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_repair_")
+        self.src_pdf = os.path.join(self.temp_dir.name, "repair_src.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=3, text_prefix="RepairDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_repair_valid_pdf_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_repaired.pdf")
+        engine = PdfRepairEngine()
+        opts = {}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        for page in doc:
+            self.assertIn("RepairDoc", page.get_text())
+        doc.close()
+
+        res_meta = opts.get("result_metadata")
+        self.assertIsNotNone(res_meta)
+        self.assertEqual(res_meta["repair_status"], "valid")
+
+
+class PdfUtilitiesApiRemainingOperationsTestCase(TestCase):
+    """API endpoint integration tests for all remaining PDF utility operations."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="velto_test_api_ops_")
+        self.url = reverse("conversions:pdf-utilities")
+
+        self.pdf_file_path = os.path.join(self.temp_dir.name, "sample.pdf")
+        create_dummy_pdf(self.pdf_file_path, page_count=3, text_prefix="ApiDoc")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_api_pdf_watermark(self):
+        with open(self.pdf_file_path, "rb") as f:
+            response = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_watermark",
+                    "file": f,
+                    "text": "CONFIDENTIAL",
+                    "position": "center",
+                },
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "completed")
+
+    def test_api_pdf_protect_and_unlock_flow(self):
+        # 1. Protect via API
+        with open(self.pdf_file_path, "rb") as f:
+            prot_resp = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_protect",
+                    "file": f,
+                    "password": "ApiSecretPass123",
+                },
+                format="multipart",
+            )
+        self.assertEqual(prot_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(prot_resp.data["status"], "completed")
+        self.assertEqual(prot_resp.data["options"]["password"], "[REDACTED]")
+
+        prot_job_id = prot_resp.data["id"]
+        prot_job = ConversionJob.objects.get(id=prot_job_id)
+        prot_output_path = prot_job.output_path
+
+        # 2. Unlock protected output via API
+        with open(prot_output_path, "rb") as f:
+            unlock_resp = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_unlock",
+                    "file": f,
+                    "password": "ApiSecretPass123",
+                },
+                format="multipart",
+            )
+        self.assertEqual(unlock_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(unlock_resp.data["status"], "completed")
+        self.assertEqual(unlock_resp.data["options"]["password"], "[REDACTED]")
+
+    def test_api_pdf_metadata(self):
+        with open(self.pdf_file_path, "rb") as f:
+            response = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_metadata",
+                    "file": f,
+                    "mode": "write",
+                    "title": "API PDF Title",
+                    "author": "VELTO Tester",
+                },
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "completed")
+
+    def test_api_pdf_page_numbers(self):
+        with open(self.pdf_file_path, "rb") as f:
+            response = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_page_numbers",
+                    "file": f,
+                    "scope": "all",
+                    "position": "bottom-center",
+                    "prefix": "Page ",
+                },
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "completed")
+
+    def test_api_pdf_repair(self):
+        with open(self.pdf_file_path, "rb") as f:
+            response = self.client.post(
+                self.url,
+                {
+                    "operation": "pdf_repair",
+                    "file": f,
+                },
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "completed")
+

@@ -277,10 +277,11 @@ class PdfUtilitiesView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
+        from apps.conversions.formats import ALL_PDF_OPERATIONS
         operation = request.data.get("operation")
-        if operation not in ("pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate", "pdf_compress"):
+        if operation not in ALL_PDF_OPERATIONS:
             return Response(
-                {"error": True, "message": "unsupported_operation: Invalid or missing PDF utility operation. Supported: pdf_merge, pdf_split, pdf_extract_pages, pdf_rotate, pdf_compress."},
+                {"error": True, "message": f"unsupported_operation: Invalid or missing PDF utility operation. Supported: {', '.join(ALL_PDF_OPERATIONS)}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -295,8 +296,12 @@ class PdfUtilitiesView(APIView):
             )
 
         options = {"operation": operation}
-        if "split_mode" in request.data:
-            options["split_mode"] = request.data.get("split_mode")
+
+        # Common parameters
+        for key in ("split_mode", "pages", "scope", "profile", "position", "color", "text", "password", "user_password", "owner_password", "mode", "title", "author", "subject", "keywords", "creator", "producer", "prefix", "suffix", "format_style"):
+            if key in request.data:
+                options[key] = request.data.get(key)
+
         if "ranges" in request.data:
             ranges_val = request.data.get("ranges")
             if isinstance(ranges_val, str) and (ranges_val.startswith("[") or "," in ranges_val):
@@ -307,24 +312,45 @@ class PdfUtilitiesView(APIView):
                     options["ranges"] = [r.strip() for r in ranges_val.split(",") if r.strip()]
             else:
                 options["ranges"] = ranges_val if isinstance(ranges_val, list) else [ranges_val]
+
         if "pages_per_file" in request.data:
             try:
                 options["pages_per_file"] = int(request.data.get("pages_per_file"))
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
-        if "pages" in request.data:
-            options["pages"] = request.data.get("pages")
+
         if "rotation" in request.data:
             rot_val = request.data.get("rotation")
             try:
                 options["rotation"] = int(rot_val)
             except (ValueError, TypeError):
                 options["rotation"] = rot_val
-        if "scope" in request.data:
-            options["scope"] = request.data.get("scope")
-        if "profile" in request.data:
-            options["profile"] = request.data.get("profile")
-        elif operation == "pdf_compress":
+
+        if "opacity" in request.data:
+            try:
+                options["opacity"] = float(request.data.get("opacity"))
+            except (ValueError, TypeError):
+                pass
+
+        if "font_size" in request.data:
+            try:
+                options["font_size"] = float(request.data.get("font_size"))
+            except (ValueError, TypeError):
+                pass
+
+        if "start_number" in request.data:
+            try:
+                options["start_number"] = int(request.data.get("start_number"))
+            except (ValueError, TypeError):
+                pass
+
+        if "permissions" in request.data:
+            try:
+                options["permissions"] = int(request.data.get("permissions"))
+            except (ValueError, TypeError):
+                pass
+
+        if operation == "pdf_compress" and "profile" not in options:
             options["profile"] = "lossless"
 
         session_key = _ensure_session_key(request)

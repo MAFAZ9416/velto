@@ -233,7 +233,7 @@ def validate_csv_signature(path: str) -> None:
 
 
 
-def validate_pdf_output(path: str) -> None:
+def validate_pdf_output(path: str, allow_encrypted: bool = False) -> None:
     """
     Verify that `path` is a valid, non-empty PDF file containing at least 1 page.
 
@@ -248,6 +248,11 @@ def validate_pdf_output(path: str) -> None:
     try:
         import fitz
         doc = fitz.open(path)
+        if doc.is_encrypted:
+            doc.close()
+            if not allow_encrypted:
+                raise ConversionError("The generated PDF file is encrypted.")
+            return
         page_count = len(doc)
         doc.close()
         if page_count < 1:
@@ -591,9 +596,10 @@ def validate_pdf_utility_input(
     min_files: int = 1,
     max_files: int = 100,
     session_dir: str | None = None,
+    allow_encrypted: bool = False,
 ) -> list["fitz.Document"]:
     """
-    Validate input PDF files for Phase 5A operations.
+    Validate input PDF files for Phase 5 operations.
 
     Checks:
     - Minimum and maximum file count.
@@ -601,7 +607,7 @@ def validate_pdf_utility_input(
     - File size <= MAX_PDF_FILE_SIZE.
     - Total input size across all files <= MAX_PDF_TOTAL_INPUT_BYTES.
     - Valid PDF header magic bytes.
-    - Can be opened by PyMuPDF and is unencrypted.
+    - Can be opened by PyMuPDF and is unencrypted (unless allow_encrypted is True).
     - Single page count <= MAX_PDF_PAGE_COUNT.
     - Total pages across all inputs <= MAX_PDF_TOTAL_PAGES.
 
@@ -659,7 +665,7 @@ def validate_pdf_utility_input(
             except Exception as exc:
                 raise ConversionError(f"corrupted_pdf: File '{p.name}' is corrupted or malformed.") from exc
 
-            if doc.is_encrypted:
+            if doc.is_encrypted and not allow_encrypted:
                 doc.close()
                 raise ConversionError(f"encrypted_pdf: File '{p.name}' is password protected.")
 
