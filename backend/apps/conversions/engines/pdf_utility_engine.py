@@ -218,3 +218,100 @@ class PdfExtractPagesEngine(BaseConversionEngine):
             raise ConversionError(f"corrupted_pdf: Extracted PDF page count ({out_count}) does not match requested count ({len(indices)}).")
 
         return output_path
+
+
+# ── PDF Rotate Engine ─────────────────────────────────────────────────────────
+
+class PdfRotateEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_rotate"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options or {}
+
+        # 1. Validate rotation parameter
+        raw_rotation = opts.get("rotation")
+        if raw_rotation is None:
+            raise ConversionError("invalid_rotation: Rotation parameter 'rotation' is required.")
+        try:
+            rotation = int(raw_rotation)
+        except (ValueError, TypeError):
+            raise ConversionError(f"invalid_rotation: Invalid rotation value '{raw_rotation}'. Must be 90, 180, or 270.")
+
+        if rotation not in (90, 180, 270):
+            raise ConversionError(f"invalid_rotation: Rotation angle must be 90, 180, or 270 degrees (got {rotation}).")
+
+        # 2. Validate scope parameter
+        raw_scope = opts.get("scope", "all")
+        scope = str(raw_scope).lower().strip() if raw_scope is not None else "all"
+        if scope not in ("all", "selected"):
+            raise ConversionError(f"invalid_scope: Invalid scope '{raw_scope}'. Must be 'all' or 'selected'.")
+
+        pages_expr = opts.get("pages")
+        if scope == "selected" and not pages_expr:
+            raise ConversionError("pages_required: Page range selection 'pages' is required when scope is 'selected'.")
+
+        # 3. Validate input PDF file
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        total_pages = len(src_doc)
+
+        try:
+            # Resolve page indices to rotate
+            if scope == "all":
+                target_indices = set(range(total_pages))
+            else:
+                target_indices = set(parse_page_range(pages_expr, total_pages, allow_duplicates=False))
+
+            original_rotations = []
+            expected_rotations = []
+
+            for idx in range(total_pages):
+                page = src_doc[idx]
+                orig_rot = page.rotation
+                original_rotations.append(orig_rot)
+
+                if idx in target_indices:
+                    new_rot = (orig_rot + rotation) % 360
+                    page.set_rotation(new_rot)
+                    expected_rotations.append(new_rot)
+                else:
+                    expected_rotations.append(orig_rot)
+
+            out_dir = Path(output_path).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            src_doc.save(output_path, garbage=4, deflate=True)
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfRotateEngine failed: %s", exc)
+            raise ConversionError("pdf_rotate_failed: Failed to rotate PDF pages.") from exc
+        finally:
+            src_doc.close()
+
+        # 4. Validate output PDF file
+        validate_pdf_output(output_path)
+
+        # 5. Verify page rotations, page count, and text extractability
+        out_doc = fitz.open(output_path)
+        try:
+            if len(out_doc) != total_pages:
+                raise ConversionError(f"corrupted_pdf: Rotated PDF page count ({len(out_doc)}) does not match input page count ({total_pages}).")
+
+            for idx in range(total_pages):
+                out_page = out_doc[idx]
+                actual_rot = out_page.rotation
+                expected_rot = expected_rotations[idx]
+                if actual_rot != expected_rot:
+                    raise ConversionError(f"corrupted_pdf: Page {idx + 1} rotation is {actual_rot}°, expected {expected_rot}°.")
+
+                # Confirm text extraction works cleanly without error
+                _ = out_page.get_text()
+        finally:
+            out_doc.close()
+
+        return output_path
+

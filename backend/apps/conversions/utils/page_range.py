@@ -83,7 +83,7 @@ def parse_page_range(range_expr: str | list | None, total_pages: int, allow_dupl
                 raise ConversionError(f"page_range_invalid: Reversed range segment '{part}' (start page {start_p} > end page {end_p}).")
 
             if end_p > total_pages:
-                raise ConversionError(f"page_count_exceeded: Selected page {end_p} exceeds total document page count ({total_pages}).")
+                raise ConversionError(f"page_out_of_range: Selected page {end_p} exceeds total document page count ({total_pages}). (page_count_exceeded)")
 
             for p in range(start_p, end_p + 1):
                 idx = p - 1
@@ -102,7 +102,7 @@ def parse_page_range(range_expr: str | list | None, total_pages: int, allow_dupl
                 raise ConversionError(f"page_range_invalid: Page number '{part}' must be a 1-based positive integer.")
 
             if p > total_pages:
-                raise ConversionError(f"page_count_exceeded: Selected page {p} exceeds total document page count ({total_pages}).")
+                raise ConversionError(f"page_out_of_range: Selected page {p} exceeds total document page count ({total_pages}). (page_count_exceeded)")
 
             idx = p - 1
             if not allow_duplicates and idx in seen:

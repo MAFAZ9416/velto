@@ -278,9 +278,9 @@ class PdfUtilitiesView(APIView):
 
     def post(self, request):
         operation = request.data.get("operation")
-        if operation not in ("pdf_merge", "pdf_split", "pdf_extract_pages"):
+        if operation not in ("pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate"):
             return Response(
-                {"error": True, "message": "unsupported_operation: Invalid or missing PDF utility operation. Supported: pdf_merge, pdf_split, pdf_extract_pages."},
+                {"error": True, "message": "unsupported_operation: Invalid or missing PDF utility operation. Supported: pdf_merge, pdf_split, pdf_extract_pages, pdf_rotate."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -314,6 +314,14 @@ class PdfUtilitiesView(APIView):
                 pass
         if "pages" in request.data:
             options["pages"] = request.data.get("pages")
+        if "rotation" in request.data:
+            rot_val = request.data.get("rotation")
+            try:
+                options["rotation"] = int(rot_val)
+            except (ValueError, TypeError):
+                options["rotation"] = rot_val
+        if "scope" in request.data:
+            options["scope"] = request.data.get("scope")
 
         session_key = _ensure_session_key(request)
 

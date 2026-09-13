@@ -24,6 +24,7 @@ from apps.conversions.engines.base import ConversionError
 from apps.conversions.engines.pdf_utility_engine import (
     PdfExtractPagesEngine,
     PdfMergeEngine,
+    PdfRotateEngine,
     PdfSplitEngine,
 )
 from apps.conversions.engines.validators import (
@@ -414,7 +415,7 @@ class PdfUtilitiesApiIntegrationTestCase(TestCase):
         response = self.client.post(
             url,
             {
-                "operation": "pdf_rotate",
+                "operation": "pdf_watermark",
                 "file": file1,
             },
             format="multipart",
@@ -422,3 +423,186 @@ class PdfUtilitiesApiIntegrationTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)
         self.assertIn("unsupported_operation", response.data["message"])
+
+    def test_api_pdf_rotate_all_pages_success(self):
+        pdf_bytes = self._create_sample_pdf_bytes(4, "RotateTest")
+        file1 = SimpleUploadedFile("document.pdf", pdf_bytes, content_type="application/pdf")
+
+        url = "/api/v1/pdf/utilities/"
+        response = self.client.post(
+            url,
+            {
+                "operation": "pdf_rotate",
+                "file": file1,
+                "rotation": 90,
+                "scope": "all",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["status"], "completed")
+
+        job = ConversionJob.objects.get(id=response.data["id"])
+        self.assertTrue(job.output_path.endswith(".pdf"))
+        self.assertTrue(os.path.exists(job.output_path))
+
+        # Verify page rotation and text
+        rotated_doc = fitz.open(job.output_path)
+        self.assertEqual(len(rotated_doc), 4)
+        for page in rotated_doc:
+            self.assertEqual(page.rotation, 90)
+            self.assertIn("RotateTest", page.get_text())
+        rotated_doc.close()
+
+        # Verify download endpoint works
+        download_url = f"/api/conversions/{job.id}/download/"
+        dl_resp = self.client.get(download_url)
+        self.assertEqual(dl_resp.status_code, status.HTTP_200_OK)
+
+    def test_api_pdf_rotate_selected_pages_success(self):
+        pdf_bytes = self._create_sample_pdf_bytes(4, "SelectedRotate")
+        file1 = SimpleUploadedFile("document.pdf", pdf_bytes, content_type="application/pdf")
+
+        url = "/api/v1/pdf/utilities/"
+        response = self.client.post(
+            url,
+            {
+                "operation": "pdf_rotate",
+                "file": file1,
+                "rotation": 180,
+                "scope": "selected",
+                "pages": "2,4",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["status"], "completed")
+
+        job = ConversionJob.objects.get(id=response.data["id"])
+        rotated_doc = fitz.open(job.output_path)
+        self.assertEqual(len(rotated_doc), 4)
+        self.assertEqual(rotated_doc[0].rotation, 0)
+        self.assertEqual(rotated_doc[1].rotation, 180)
+        self.assertEqual(rotated_doc[2].rotation, 0)
+        self.assertEqual(rotated_doc[3].rotation, 180)
+        rotated_doc.close()
+
+
+class PdfRotateEngineTestCase(TestCase):
+    """Focused unit tests for PdfRotateEngine and rotation rules."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.src_pdf = os.path.join(self.temp_dir.name, "doc.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=4, text_prefix="RotationPage")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_rotate_all_90_degrees(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_90.pdf")
+        engine = PdfRotateEngine()
+        res = engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "all"})
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        for page in doc:
+            self.assertEqual(page.rotation, 90)
+            self.assertIn("RotationPage", page.get_text())
+        doc.close()
+
+    def test_rotate_all_180_degrees(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_180.pdf")
+        engine = PdfRotateEngine()
+        res = engine.convert(self.src_pdf, out_pdf, options={"rotation": 180, "scope": "all"})
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        for page in doc:
+            self.assertEqual(page.rotation, 180)
+        doc.close()
+
+    def test_rotate_all_270_degrees(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_270.pdf")
+        engine = PdfRotateEngine()
+        res = engine.convert(self.src_pdf, out_pdf, options={"rotation": 270, "scope": "all"})
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        for page in doc:
+            self.assertEqual(page.rotation, 270)
+        doc.close()
+
+    def test_rotate_selected_pages(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_selected.pdf")
+        engine = PdfRotateEngine()
+        opts = {"rotation": 90, "scope": "selected", "pages": "2-3"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 4)
+        self.assertEqual(doc[0].rotation, 0)
+        self.assertEqual(doc[1].rotation, 90)
+        self.assertEqual(doc[2].rotation, 90)
+        self.assertEqual(doc[3].rotation, 0)
+        doc.close()
+
+    def test_existing_rotation_combined_correctly(self):
+        # Set page 1 initial rotation to 90
+        initial_pdf = os.path.join(self.temp_dir.name, "initial_90.pdf")
+        doc = fitz.open(self.src_pdf)
+        doc[0].set_rotation(90)
+        doc.save(initial_pdf)
+        doc.close()
+
+        out_pdf = os.path.join(self.temp_dir.name, "combined_rotation.pdf")
+        engine = PdfRotateEngine()
+        opts = {"rotation": 90, "scope": "all"}
+        res = engine.convert(initial_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        out_doc = fitz.open(out_pdf)
+        self.assertEqual(out_doc[0].rotation, 180)  # 90 + 90 = 180
+        self.assertEqual(out_doc[1].rotation, 90)   # 0 + 90 = 90
+        out_doc.close()
+
+    def test_reject_invalid_rotation(self):
+        out_pdf = os.path.join(self.temp_dir.name, "invalid_rot.pdf")
+        engine = PdfRotateEngine()
+
+        for bad_rot in [45, "invalid", None]:
+            with self.assertRaises(ConversionError) as ctx:
+                engine.convert(self.src_pdf, out_pdf, options={"rotation": bad_rot, "scope": "all"})
+            self.assertIn("invalid_rotation", str(ctx.exception))
+
+    def test_reject_invalid_scope(self):
+        out_pdf = os.path.join(self.temp_dir.name, "invalid_scope.pdf")
+        engine = PdfRotateEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "invalid_scope"})
+        self.assertIn("invalid_scope", str(ctx.exception))
+
+    def test_require_pages_for_selected_scope(self):
+        out_pdf = os.path.join(self.temp_dir.name, "missing_pages.pdf")
+        engine = PdfRotateEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "selected"})
+        self.assertIn("pages_required", str(ctx.exception))
+
+    def test_reject_invalid_page_range(self):
+        out_pdf = os.path.join(self.temp_dir.name, "invalid_range.pdf")
+        engine = PdfRotateEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "selected", "pages": "5-2"})
+        self.assertIn("page_range_invalid", str(ctx.exception))
+
+    def test_reject_pages_outside_document(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_of_bounds.pdf")
+        engine = PdfRotateEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "selected", "pages": "10"})
+        self.assertTrue("page_out_of_range" in str(ctx.exception) or "page_count_exceeded" in str(ctx.exception))

@@ -49,6 +49,7 @@ class ConversionsConfig(AppConfig):
             PdfMergeEngine,
             PdfSplitEngine,
             PdfExtractPagesEngine,
+            PdfRotateEngine,
         )
 
         engine_registry.register(PdfToDocxEngine)
@@ -81,6 +82,7 @@ class ConversionsConfig(AppConfig):
         engine_registry.register(PdfMergeEngine)
         engine_registry.register(PdfSplitEngine)
         engine_registry.register(PdfExtractPagesEngine)
+        engine_registry.register(PdfRotateEngine)
 
         # Register Image engines
         engine_registry.register(JpgToPngEngine)
