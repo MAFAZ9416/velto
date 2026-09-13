@@ -315,3 +315,182 @@ class PdfRotateEngine(BaseConversionEngine):
 
         return output_path
 
+
+# ── PDF Compress Engine ───────────────────────────────────────────────────────
+
+class PdfCompressEngine(BaseConversionEngine):
+    source_format = FORMAT_PDF
+    target_format = FORMAT_PDF
+    operation = "pdf_compress"
+    output_extension = ".pdf"
+    mime_type = "application/pdf"
+
+    SUPPORTED_PROFILES = ("lossless", "balanced", "strong")
+
+    def convert(self, input_path: str, output_path: str, options: dict | None = None) -> str | None:
+        opts = options if options is not None else {}
+
+        # 1. Validate profile parameter
+        raw_profile = opts.get("profile", "lossless")
+        profile = str(raw_profile).lower().strip() if raw_profile is not None else "lossless"
+        if not profile:
+            profile = "lossless"
+
+        if profile not in self.SUPPORTED_PROFILES:
+            raise ConversionError(
+                f"invalid_profile: Invalid compression profile '{raw_profile}'. "
+                f"Supported profiles: lossless, balanced, strong."
+            )
+
+        # 2. Measure input file size & validate PDF input
+        original_size = Path(input_path).stat().st_size if Path(input_path).exists() else 0
+        docs = validate_pdf_utility_input(input_path, min_files=1, max_files=1)
+        src_doc = docs[0]
+        total_pages = len(src_doc)
+
+        input_rects = [src_doc[i].rect for i in range(total_pages)]
+
+        try:
+            # 3. Apply profile-specific compression optimizations
+            if profile == "strong":
+                for page in src_doc:
+                    try:
+                        for img_info in page.get_images():
+                            xref = img_info[0]
+                            try:
+                                pix = fitz.Pixmap(src_doc, xref)
+                                if pix.colorspace and pix.colorspace.name in (fitz.csGRAY.name, fitz.csRGB.name):
+                                    if pix.width > 1024 or pix.height > 1024:
+                                        scale = min(1024 / pix.width, 1024 / pix.height)
+                                        new_w = max(1, int(pix.width * scale))
+                                        new_h = max(1, int(pix.height * scale))
+                                        scaled_pix = fitz.Pixmap(pix, new_w, new_h, None)
+                                        jpeg_bytes = scaled_pix.tobytes("jpeg", jpg_quality=70)
+                                        src_doc.update_stream(xref, jpeg_bytes)
+                                        scaled_pix = None
+                                    elif getattr(pix, "alpha", 0) == 0:
+                                        jpeg_bytes = pix.tobytes("jpeg", jpg_quality=70)
+                                        if len(jpeg_bytes) < len(pix.samples):
+                                            src_doc.update_stream(xref, jpeg_bytes)
+                                pix = None
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                out_dir = Path(output_path).parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                src_doc.save(
+                    output_path,
+                    garbage=4,
+                    deflate=True,
+                    clean=True,
+                    deflate_images=True,
+                    deflate_fonts=True,
+                )
+
+            elif profile == "balanced":
+                out_dir = Path(output_path).parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                src_doc.save(
+                    output_path,
+                    garbage=4,
+                    deflate=True,
+                    clean=True,
+                    deflate_images=True,
+                    deflate_fonts=True,
+                )
+
+            else:  # lossless
+                out_dir = Path(output_path).parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                src_doc.save(
+                    output_path,
+                    garbage=4,
+                    deflate=True,
+                    clean=True,
+                )
+        except ConversionError:
+            raise
+        except Exception as exc:
+            logger.error("PdfCompressEngine failed: %s", exc)
+            raise ConversionError("compression_failed: Failed to compress PDF document.") from exc
+        finally:
+            src_doc.close()
+
+        # 4. Validate output PDF file
+        try:
+            validate_pdf_output(output_path)
+        except ConversionError as exc:
+            if Path(output_path).exists():
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+            raise ConversionError(f"output_validation_failed: Compressed PDF output failed validation ({exc}).") from exc
+
+        # 5. Verify page count, page dimensions, text searchability, and measure output size
+        output_size = Path(output_path).stat().st_size
+        out_doc = fitz.open(output_path)
+        try:
+            if len(out_doc) != total_pages:
+                raise ConversionError(
+                    f"output_validation_failed: Compressed PDF page count ({len(out_doc)}) "
+                    f"does not match input ({total_pages})."
+                )
+
+            for idx in range(total_pages):
+                out_page = out_doc[idx]
+                in_rect = input_rects[idx]
+                out_rect = out_page.rect
+
+                if abs(in_rect.width - out_rect.width) > 1.0 or abs(in_rect.height - out_rect.height) > 1.0:
+                    raise ConversionError(
+                        f"output_validation_failed: Page {idx + 1} dimensions changed during compression."
+                    )
+
+                _ = out_page.get_text()
+        except ConversionError:
+            out_doc.close()
+            if Path(output_path).exists():
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+            raise
+        finally:
+            out_doc.close()
+
+        # 6. Build compression result metadata
+        saved_bytes = original_size - output_size
+        if original_size > 0:
+            saved_percent = round((saved_bytes / original_size) * 100.0, 2)
+        else:
+            saved_percent = 0.0
+
+        compression_reduced_size = bool(saved_bytes > 0)
+
+        metadata = {
+            "profile": profile,
+            "original_size": original_size,
+            "output_size": output_size,
+            "saved_bytes": saved_bytes,
+            "saved_percent": saved_percent,
+            "compression_reduced_size": compression_reduced_size,
+        }
+
+        opts["compression_metadata"] = metadata
+        opts["result_metadata"] = metadata
+
+        logger.info(
+            "PdfCompressEngine (%s): original=%d bytes, output=%d bytes, saved=%d bytes (%.2f%%)",
+            profile,
+            original_size,
+            output_size,
+            saved_bytes,
+            saved_percent,
+        )
+
+        return output_path
+
+

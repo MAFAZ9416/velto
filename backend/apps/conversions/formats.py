@@ -158,7 +158,7 @@ def is_valid_conversion(source_format: str, target_format: str, options: dict | 
         return True
     if options and isinstance(options, dict):
         op = options.get("operation")
-        if source_format == "pdf" and op in ("pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate"):
+        if source_format == "pdf" and op in ("pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate", "pdf_compress"):
             return True
     return False
 

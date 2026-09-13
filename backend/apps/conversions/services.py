@@ -305,6 +305,7 @@ class ConversionService:
             job.save(update_fields=[
                 "status", "completed_at",
                 "output_path", "output_filename", "output_size_bytes",
+                "options",
             ])
 
         # ── Clean up input file after successful conversion ─────────────────

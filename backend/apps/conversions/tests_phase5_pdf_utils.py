@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 
 from apps.conversions.engines.base import ConversionError
 from apps.conversions.engines.pdf_utility_engine import (
+    PdfCompressEngine,
     PdfExtractPagesEngine,
     PdfMergeEngine,
     PdfRotateEngine,
@@ -487,6 +488,32 @@ class PdfUtilitiesApiIntegrationTestCase(TestCase):
         self.assertEqual(rotated_doc[3].rotation, 180)
         rotated_doc.close()
 
+    def test_api_pdf_compress_integration(self):
+        pdf_bytes = self._create_sample_pdf_bytes(3, "CompressApi")
+        file1 = SimpleUploadedFile("document.pdf", pdf_bytes, content_type="application/pdf")
+
+        url = "/api/v1/pdf/utilities/"
+        response = self.client.post(
+            url,
+            {
+                "operation": "pdf_compress",
+                "file": file1,
+                "profile": "balanced",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["status"], "completed")
+
+        job = ConversionJob.objects.get(id=response.data["id"])
+        self.assertTrue(os.path.exists(job.output_path))
+        self.assertIn("compression_metadata", job.options)
+        self.assertEqual(job.options["compression_metadata"]["profile"], "balanced")
+
+        # Test download endpoint
+        dl_resp = self.client.get(f"/api/conversions/{job.id}/download/")
+        self.assertEqual(dl_resp.status_code, status.HTTP_200_OK)
+
 
 class PdfRotateEngineTestCase(TestCase):
     """Focused unit tests for PdfRotateEngine and rotation rules."""
@@ -606,3 +633,92 @@ class PdfRotateEngineTestCase(TestCase):
         with self.assertRaises(ConversionError) as ctx:
             engine.convert(self.src_pdf, out_pdf, options={"rotation": 90, "scope": "selected", "pages": "10"})
         self.assertTrue("page_out_of_range" in str(ctx.exception) or "page_count_exceeded" in str(ctx.exception))
+
+
+class PdfCompressEngineTestCase(TestCase):
+    """Focused unit tests for PdfCompressEngine and compression profiles."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.src_pdf = os.path.join(self.temp_dir.name, "compress_doc.pdf")
+        create_dummy_pdf(self.src_pdf, page_count=3, text_prefix="CompressPage")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_lossless_compression_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_lossless.pdf")
+        engine = PdfCompressEngine()
+        opts = {"profile": "lossless"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        for page in doc:
+            self.assertIn("CompressPage", page.get_text())
+        doc.close()
+
+        meta = opts.get("compression_metadata")
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta["profile"], "lossless")
+        self.assertGreater(meta["original_size"], 0)
+        self.assertGreater(meta["output_size"], 0)
+        self.assertEqual(meta["saved_bytes"], meta["original_size"] - meta["output_size"])
+        self.assertIsInstance(meta["compression_reduced_size"], bool)
+
+    def test_balanced_compression_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_balanced.pdf")
+        engine = PdfCompressEngine()
+        opts = {"profile": "balanced"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        doc.close()
+
+        meta = opts.get("compression_metadata")
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta["profile"], "balanced")
+
+    def test_strong_compression_success(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_strong.pdf")
+        engine = PdfCompressEngine()
+        opts = {"profile": "strong"}
+        res = engine.convert(self.src_pdf, out_pdf, options=opts)
+        self.assertEqual(res, out_pdf)
+
+        doc = fitz.open(out_pdf)
+        self.assertEqual(len(doc), 3)
+        doc.close()
+
+        meta = opts.get("compression_metadata")
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta["profile"], "strong")
+
+    def test_reject_invalid_profile(self):
+        out_pdf = os.path.join(self.temp_dir.name, "invalid_prof.pdf")
+        engine = PdfCompressEngine()
+        with self.assertRaises(ConversionError) as ctx:
+            engine.convert(self.src_pdf, out_pdf, options={"profile": "extreme_invalid"})
+        self.assertIn("invalid_profile", str(ctx.exception))
+
+    def test_accurate_saved_calculation_and_larger_output_handling(self):
+        out_pdf = os.path.join(self.temp_dir.name, "out_calc.pdf")
+        engine = PdfCompressEngine()
+        opts = {"profile": "lossless"}
+        engine.convert(self.src_pdf, out_pdf, options=opts)
+
+        meta = opts["compression_metadata"]
+        orig = meta["original_size"]
+        out_s = meta["output_size"]
+        saved = orig - out_s
+        expected_pct = round((saved / orig) * 100.0, 2)
+
+        self.assertEqual(meta["saved_bytes"], saved)
+        self.assertEqual(meta["saved_percent"], expected_pct)
+        if saved <= 0:
+            self.assertFalse(meta["compression_reduced_size"])
+        else:
+            self.assertTrue(meta["compression_reduced_size"])
