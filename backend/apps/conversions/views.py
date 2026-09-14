@@ -31,6 +31,7 @@ from apps.conversions.serializers import (
     ConversionJobCreateSerializer,
     ConversionJobSerializer,
 )
+from apps.conversions.engines.base import ConversionError
 from apps.conversions.services import ConversionService, ConversionServiceError
 from apps.conversions.security import (
     DownloadRateThrottle,
@@ -139,7 +140,7 @@ class ConversionJobListCreateView(APIView):
                 session_key=session_key,
                 user=request.user if request.user.is_authenticated else None,
             )
-        except ConversionServiceError as exc:
+        except ConversionError as exc:
             logger.warning("ConversionService.create_job error: %s", exc)
             return Response(
                 {"error": True, "message": str(exc)},

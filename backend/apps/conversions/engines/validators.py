@@ -320,10 +320,15 @@ def validate_image_signature(
 
     try:
         from PIL import Image, ImageFile
+        from apps.conversions.security.limits import MAX_IMAGE_PIXELS
         ImageFile.LOAD_TRUNCATED_IMAGES = False
-        Image.MAX_IMAGE_PIXELS = 80_000_000
+        limit_pixels = Image.MAX_IMAGE_PIXELS if Image.MAX_IMAGE_PIXELS is not None else MAX_IMAGE_PIXELS
 
         with Image.open(path) as img:
+            if img.width * img.height > limit_pixels:
+                raise Image.DecompressionBombError(
+                    f"Image pixel count ({img.width * img.height}) exceeds safety limit ({limit_pixels})."
+                )
             fmt = (img.format or "").upper()
             if allowed_formats:
                 allowed_upper = {f.upper() for f in allowed_formats}
@@ -580,6 +585,106 @@ def validate_md_signature(path: str) -> None:
         raise ConversionError("The uploaded Markdown file does not exist.")
     if p.stat().st_size == 0:
         raise ConversionError("Input file is empty (0 bytes).")
+
+
+def validate_conversion_output(
+    output_path: str | Path,
+    target_format: str,
+    workspace_dir: str | Path | None = None,
+    min_size: int = 1,
+    max_size: int = 104_857_600,
+) -> None:
+    """
+    Centralized output integrity validation layer for all generated conversion outputs.
+
+    Validates:
+      1. Output file exists and is a regular file.
+      2. Workspace containment (if workspace_dir provided).
+      3. File size is >= min_size and <= max_size.
+      4. Extension matches target_format allowed_extensions.
+      5. Magic byte signature matches expected_format spec (where applicable).
+      6. Content can be parsed by the format-specific parser function.
+      7. Multi-frame rules (static image formats reject multi-frame animations).
+    """
+    from apps.conversions.security.specs import get_format_spec
+    from apps.conversions.security.paths import resolve_safe_path, PathTraversalAttempt
+
+    p = Path(output_path)
+    if not p.exists() or not p.is_file():
+        raise ConversionError(f"output_validation_failed: Output file '{p.name}' does not exist.")
+
+    if workspace_dir:
+        try:
+            resolve_safe_path(workspace_dir, p)
+        except PathTraversalAttempt as exc:
+            raise ConversionError("output_validation_failed: Output path is outside authorized workspace.") from exc
+
+    size = p.stat().st_size
+    if size < min_size:
+        raise ConversionError("output_validation_failed: Generated output file is empty (0 bytes).")
+    if size > max_size:
+        raise ConversionError(f"output_size_exceeded: Output size ({size // (1024*1024)} MB) exceeds limit.")
+
+    fmt = target_format.lower().strip()
+    try:
+        spec = get_format_spec(fmt)
+    except KeyError:
+        return
+
+    # Extension check
+    ext = p.suffix.lower()
+    if ext not in spec.allowed_extensions and not (fmt in ("jpg", "jpeg") and ext in (".jpg", ".jpeg")):
+        raise ConversionError(f"output_validation_failed: Output file extension '{ext}' does not match expected format '{fmt}'.")
+
+    # Magic byte check where defined
+    if spec.magic_bytes:
+        try:
+            with open(p, "rb") as f:
+                header = f.read(len(spec.magic_bytes))
+            if header != spec.magic_bytes:
+                if spec.magic_bytes == b"PK\x03\x04" and header.startswith(b"PK"):
+                    pass
+                elif spec.format_name in ("jpg", "jpeg") and header.startswith(b"\xff\xd8"):
+                    pass
+                elif spec.format_name == "webp" and header.startswith(b"RIFF"):
+                    pass
+                else:
+                    raise ConversionError(f"output_validation_failed: Output file header magic bytes do not match expected format '{fmt}'.")
+        except ConversionError:
+            raise
+        except Exception as exc:
+            raise ConversionError(f"output_validation_failed: Failed reading output file header: {exc}") from exc
+
+    # Format-specific parser validation
+    if fmt == "pdf":
+        validate_pdf_output(str(p))
+    elif fmt == "docx":
+        validate_docx_output(str(p))
+    elif fmt == "xlsx":
+        validate_xlsx_workbook(str(p))
+    elif fmt == "pptx":
+        validate_pptx_signature(str(p))
+    elif fmt in ("jpg", "jpeg", "png", "webp", "bmp", "tiff", "gif"):
+        validate_image_file(str(p), expected_format=fmt.upper())
+    elif fmt == "zip":
+        import zipfile
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                if zf.testzip() is not None:
+                    raise ConversionError("output_validation_failed: ZIP output is corrupted.")
+        except ConversionError:
+            raise
+        except Exception as exc:
+            raise ConversionError(f"output_validation_failed: Invalid ZIP archive: {exc}") from exc
+    elif fmt == "csv":
+        validate_csv_signature(str(p))
+    elif fmt == "txt":
+        validate_txt_signature(str(p))
+    elif fmt == "html":
+        validate_html_signature(str(p))
+    elif fmt in ("md", "markdown"):
+        validate_md_signature(str(p))
+
 
 
 # ── PDF Utility Safety Limits ────────────────────────────────────────────────

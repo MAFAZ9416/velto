@@ -118,9 +118,17 @@ class ConversionService:
         staging_name = generate_internal_filename(safe_base)
         dest_path = resolve_safe_path(ws, staging_name)
 
-        with open(dest_path, "wb") as dest:
-            for chunk in uploaded_file.chunks():
-                dest.write(chunk)
+        try:
+            with open(dest_path, "wb") as dest:
+                for chunk in uploaded_file.chunks():
+                    dest.write(chunk)
+        except OSError as exc:
+            logger.error("Failed writing uploaded file to temporary directory %s: %s", dest_path, exc)
+            if exc.errno == errno.ENOSPC:
+                raise ConversionError("Storage server is full. Please try again later.") from exc
+            elif exc.errno in (errno.EACCES, errno.EPERM):
+                raise ConversionError("Temporary storage permission error.") from exc
+            raise ConversionError(f"Failed staging uploaded file: {exc}") from exc
 
         logger.info(
             "Staged uploaded file: %s → %s (%d bytes)",
@@ -524,6 +532,14 @@ class ConversionService:
                         f"exceeds maximum allowed limit of {MAX_OUTPUT_SIZE // (1024*1024)} MB."
                     )
                 scan_file_security(out_p)
+
+            # Centralized Output Integrity Validation
+            from apps.conversions.engines.validators import validate_conversion_output
+            validate_conversion_output(
+                output_path=output_path,
+                target_format=job.target_format if not output_path.lower().endswith(".zip") else "zip",
+                workspace_dir=workspace,
+            )
 
         except ConversionError as exc:
             logger.warning("process_job: engine/security raised error for job %s: %s", job.id, exc)
