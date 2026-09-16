@@ -22,7 +22,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -180,6 +180,7 @@ class ConversionJobListCreateView(APIView):
     GET  /api/conversions/   — list jobs owned by the current session or user.
     POST /api/conversions/   — upload a file, queue background conversion job, return status.
     """
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [JobCreateRateThrottle, UploadRateThrottle]
 
@@ -259,6 +260,7 @@ class ConversionJobDetailView(APIView):
     GET /api/v1/conversions/{id}/ — Returns job status.
     DELETE /api/v1/conversions/{id}/ — Deletes job and cleans up storage objects.
     """
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         summary="Get Job Status and Details",
         description="Returns detailed job status, progress, timestamps, and action availability flags.",
@@ -320,6 +322,7 @@ class ConversionJobRetryView(APIView):
     POST /api/v1/conversions/{id}/retry/
     Retry a failed or cancelled conversion job.
     """
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         summary="Retry Failed or Cancelled Job",
         description="Re-queues a failed or cancelled conversion job if input file is available and retry limit is not exceeded.",
@@ -393,6 +396,7 @@ class ConversionHistoryListView(APIView):
     GET /api/history/
     Returns user/session conversion history with filtering, pagination, and safe ordering.
     """
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         summary="Conversion History List",
         description="Returns user/session conversion history with pagination, date filtering, and safe ordering.",
@@ -474,6 +478,7 @@ class ConversionJobCancelView(APIView):
     POST /api/conversions/{id}/cancel/ or POST /api/jobs/{id}/cancel/
     Request cancellation of an active or queued conversion job.
     """
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         summary="Cancel Conversion Job",
         description="Cancels an active or queued conversion job and revokes background Celery tasks.",
@@ -537,6 +542,7 @@ class ConversionJobDownloadView(APIView):
     GET /api/conversions/{id}/download/
     Stream the converted output file to the client.
     """
+    permission_classes = [IsAuthenticated]
     throttle_classes = [DownloadRateThrottle]
 
     @extend_schema(
@@ -682,6 +688,7 @@ class PdfUtilitiesView(APIView):
     """
     POST /api/v1/pdf/utilities/ — Dedicated API endpoint for PDF Utility operations.
     """
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [PdfUtilityRateThrottle, UploadRateThrottle]
 
@@ -797,6 +804,7 @@ class OcrUtilitiesView(APIView):
     """
     POST /api/v1/ocr/ — Dedicated API endpoint for OCR Utility operations.
     """
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [OcrRateThrottle, UploadRateThrottle]
 
@@ -900,6 +908,7 @@ class PresignedUploadUrlView(APIView):
     POST /api/conversions/upload-url/ or POST /api/jobs/upload-url/
     Creates a pending upload session and generates a short-lived presigned upload URL.
     """
+    permission_classes = [IsAuthenticated]
     throttle_classes = [UploadRateThrottle]
 
     @extend_schema(
@@ -952,6 +961,7 @@ class FinalizeUploadView(APIView):
     POST /api/conversions/{id}/finalize-upload/ or POST /api/jobs/{id}/finalize-upload/
     Verifies object existence in storage, performs security checks, marks finalized, and dispatches task.
     """
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         summary="Finalize Upload Session",
         description="Verifies file upload completion in storage, performs security validation, and dispatches conversion task.",
@@ -989,6 +999,7 @@ class PresignedDownloadUrlView(APIView):
     GET /api/conversions/{id}/download-url/ or GET /api/jobs/{id}/download-url/
     Returns a short-lived presigned download URL for a completed conversion job.
     """
+    permission_classes = [IsAuthenticated]
     throttle_classes = [DownloadRateThrottle]
 
     @extend_schema(

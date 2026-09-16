@@ -18,7 +18,7 @@ Verifies:
  14. Request ID middleware (X-Request-ID header).
  15. Legacy route backward compatibility.
  16. OpenAPI 3 schema and documentation endpoint resolution.
- 17. Session isolation and IDOR prevention.
+ 17. Session/User isolation and IDOR prevention.
 """
 
 import tempfile
@@ -27,6 +27,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -34,6 +35,7 @@ from rest_framework.test import APIClient
 from apps.conversions.models import ConversionJob, JobStatus
 from apps.conversions.services import ConversionService
 
+User = get_user_model()
 
 TEST_TEMP_DIR = tempfile.mkdtemp(prefix="velto_api_contract_tests_")
 
@@ -44,6 +46,12 @@ class ApiContractTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="contract_user@example.com",
+            email="contract_user@example.com",
+            password="Password123!",
+        )
+        self.client.force_authenticate(user=self.user)
         self.temp_dir = tempfile.TemporaryDirectory(prefix="api_contract_")
         session = self.client.session
         session.create()
@@ -117,8 +125,13 @@ class ApiContractTests(TestCase):
             res = self.client.get("/ready/")
             self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
             body = res.json()
-            self.assertEqual(body["status"], "not_ready")
-            self.assertEqual(body["checks"]["database"], "error")
+            if "error" in body and body["error"]:
+                details = body["error"].get("details", {})
+                self.assertEqual(details.get("status"), "not_ready")
+                self.assertEqual(details.get("checks", {}).get("database"), "error")
+            else:
+                self.assertEqual(body.get("status"), "not_ready")
+                self.assertEqual(body.get("checks", {}).get("database"), "error")
 
     # ── 3. Format Discovery Endpoint ──────────────────────────────────────────
 
@@ -158,6 +171,7 @@ class ApiContractTests(TestCase):
     def test_finalize_upload_missing_key_rejected(self):
         """POST /api/v1/conversions/{job_id}/finalize-upload/ fails cleanly when key does not exist."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.PENDING,
@@ -174,6 +188,7 @@ class ApiContractTests(TestCase):
     def test_job_status_detail_endpoint(self):
         """GET /api/v1/conversions/{job_id}/ returns job status and action availability flags."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.COMPLETED,
@@ -196,6 +211,7 @@ class ApiContractTests(TestCase):
     def test_download_uncompleted_job_rejected(self):
         """GET /api/v1/conversions/{job_id}/download/ returns 202/400 if job is not completed."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.PROCESSING,
@@ -211,6 +227,7 @@ class ApiContractTests(TestCase):
         """GET /api/v1/conversions/history/ supports filters, page_size, and safe ordering."""
         for i in range(5):
             ConversionJob.objects.create(
+                user=self.user,
                 source_format="pdf" if i % 2 == 0 else "txt",
                 target_format="docx",
                 status=JobStatus.COMPLETED if i < 3 else JobStatus.FAILED,
@@ -230,6 +247,7 @@ class ApiContractTests(TestCase):
     def test_delete_job_ownership_and_idempotency(self):
         """DELETE /api/v1/conversions/{job_id}/ deletes job and is idempotent."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="txt",
             target_format="pdf",
             status=JobStatus.COMPLETED,
@@ -255,6 +273,7 @@ class ApiContractTests(TestCase):
         inp.write_bytes(b"Hello text content")
 
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="txt",
             target_format="pdf",
             status=JobStatus.FAILED,
@@ -276,6 +295,7 @@ class ApiContractTests(TestCase):
     def test_retry_exceeding_max_retries_rejected(self):
         """POST /api/v1/conversions/{job_id}/retry/ fails when retry count exceeds max_retries."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="txt",
             target_format="pdf",
             status=JobStatus.FAILED,
@@ -293,6 +313,7 @@ class ApiContractTests(TestCase):
     def test_cancel_active_job(self):
         """POST /api/v1/conversions/{job_id}/cancel/ transitions job state to CANCELLED."""
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.QUEUED,
@@ -324,8 +345,14 @@ class ApiContractTests(TestCase):
     # ── 12. Session Isolation & IDOR Prevention ───────────────────────────────
 
     def test_idor_prevention_across_sessions(self):
-        """Session A cannot view, delete, or retry a job belonging to Session B."""
+        """User A cannot view, delete, or retry a job belonging to User B."""
+        user_b = User.objects.create_user(
+            username="user_b@example.com",
+            email="user_b@example.com",
+            password="Password123!",
+        )
         job_owner_b = ConversionJob.objects.create(
+            user=user_b,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.COMPLETED,
@@ -333,11 +360,11 @@ class ApiContractTests(TestCase):
             session_key="session_b_secret_key",
         )
 
-        # Client A requests Session B's job detail
+        # Client A (authenticated as self.user) requests User B's job detail
         res_detail = self.client.get(f"/api/v1/conversions/{job_owner_b.id}/")
         self.assertEqual(res_detail.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Client A attempts to cancel Session B's job
+        # Client A attempts to cancel User B's job
         res_cancel = self.client.post(f"/api/v1/conversions/{job_owner_b.id}/cancel/")
         self.assertEqual(res_cancel.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -350,6 +377,7 @@ class ApiContractTests(TestCase):
         out_file.write_bytes(b"PK fake docx content")
 
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.COMPLETED,
@@ -370,6 +398,7 @@ class ApiContractTests(TestCase):
         out_file.write_bytes(b"PK fake docx content")
 
         job = ConversionJob.objects.create(
+            user=self.user,
             source_format="pdf",
             target_format="docx",
             status=JobStatus.COMPLETED,

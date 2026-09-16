@@ -93,3 +93,23 @@ class ProcessingTimeout(SecurityValidationError):
 class DocumentLimitExceeded(SecurityValidationError):
     """Raised when document page count, spreadsheet dimensions, or image pixels exceed limits."""
     error_code = "document_limit_exceeded"
+
+
+class StorageLimitExceeded(AbuseLimitExceeded):
+    """Raised when user storage limit is exceeded."""
+    error_code = "STORAGE_LIMIT_EXCEEDED"
+
+
+class DailyConversionLimitExceeded(AbuseLimitExceeded):
+    """Raised when user daily conversion limit is exceeded."""
+    error_code = "DAILY_CONVERSION_LIMIT_EXCEEDED"
+
+
+class MonthlyConversionLimitExceeded(AbuseLimitExceeded):
+    """Raised when user monthly conversion limit is exceeded."""
+    error_code = "MONTHLY_CONVERSION_LIMIT_EXCEEDED"
+
+
+class ConcurrentJobLimitExceeded(AbuseLimitExceeded):
+    """Raised when concurrent active job limit is exceeded."""
+    error_code = "CONCURRENT_JOB_LIMIT_EXCEEDED"

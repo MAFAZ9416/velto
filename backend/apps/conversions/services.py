@@ -330,16 +330,16 @@ class ConversionService:
             staged_path = cls.stage_uploaded_files(uploaded_files, source_format, workspace=workspace)
             orig_filename = f"{len(uploaded_files)}_images.zip"
             total_bytes = sum(f.size for f in uploaded_files)
-        elif uploaded_files and len(uploaded_files) == 1:
-            staged_path = cls.stage_uploaded_file(uploaded_files[0], source_format, workspace=workspace)
-            orig_filename = sanitize_filename(uploaded_files[0].name)
-            total_bytes = uploaded_files[0].size
         elif uploaded_file:
             staged_path = cls.stage_uploaded_file(uploaded_file, source_format, workspace=workspace)
             orig_filename = sanitize_filename(uploaded_file.name)
             total_bytes = uploaded_file.size
         else:
             raise ConversionServiceError("No uploaded file provided.")
+
+        if user and getattr(user, "is_authenticated", False):
+            from apps.conversions.security.quotas import check_user_conversion_limits
+            check_user_conversion_limits(user, total_bytes)
 
         owner_ident = f"usr_{user.id}" if user else (session_key or "anonymous")
         storage = get_storage_service()
@@ -358,7 +358,7 @@ class ConversionService:
 
         job = ConversionJob.objects.create(
             id=job_uuid,
-            user=user,
+            user=user if user and user.is_authenticated else None,
             session_key=session_key or "",
             source_format=source_format,
             target_format=target_format,
@@ -372,6 +372,9 @@ class ConversionService:
             is_finalized=True,
         )
         job._runtime_options = dict(options)
+
+        if user and user.is_authenticated and hasattr(user, "profile"):
+            user.profile.record_conversion_job(total_bytes)
 
         logger.info(
             "Created ConversionJob %s (%s→%s) input: %s (storage_key: %s)",

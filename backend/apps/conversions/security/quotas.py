@@ -10,10 +10,44 @@ from django.db import models
 from django.db.models import Sum, Q
 
 from apps.conversions.models import ConversionJob, JobStatus
-from apps.conversions.security.exceptions import AbuseLimitExceeded
+from apps.conversions.security.exceptions import (
+    AbuseLimitExceeded,
+    StorageLimitExceeded,
+    DailyConversionLimitExceeded,
+    MonthlyConversionLimitExceeded,
+)
 from apps.conversions.security.ownership import get_request_owner_identity
 
 logger = logging.getLogger(__name__)
+
+
+def check_user_conversion_limits(user, incoming_bytes: int = 0) -> None:
+    """
+    Check if an authenticated user has remaining storage capacity and conversion quota.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return
+
+    from apps.users.models import UserProfile
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    profile.reset_usage_if_needed()
+
+    if not profile.has_storage_capacity(incoming_bytes):
+        limit_mb = profile.storage_limit_bytes // (1024 * 1024)
+        used_mb = profile.storage_used_bytes // (1024 * 1024)
+        raise StorageLimitExceeded(
+            f"Storage limit of {limit_mb} MB reached ({used_mb} MB used). Please delete old files to free up space."
+        )
+
+    if not profile.has_daily_capacity():
+        raise DailyConversionLimitExceeded(
+            f"Daily conversion limit of {profile.daily_conversion_limit} jobs reached. Please try again tomorrow."
+        )
+
+    if not profile.has_monthly_capacity():
+        raise MonthlyConversionLimitExceeded(
+            f"Monthly conversion limit of {profile.monthly_conversion_limit} jobs reached."
+        )
 
 
 def get_owner_storage_usage(user=None, session_key: str = "") -> int:
@@ -55,11 +89,13 @@ def check_storage_quota(request, incoming_bytes: int = 0) -> int:
     Raises
     ------
     AbuseLimitExceeded
-        If adding `incoming_bytes` exceeds `settings.STORAGE_QUOTA_BYTES`.
+        If adding `incoming_bytes` exceeds `settings.STORAGE_QUOTA_BYTES` or user profile limit.
     """
-    quota_limit = getattr(settings, "STORAGE_QUOTA_BYTES", 524_288_000)
     user, session_key = get_request_owner_identity(request)
+    if user and user.is_authenticated:
+        check_user_conversion_limits(user, incoming_bytes)
 
+    quota_limit = getattr(settings, "STORAGE_QUOTA_BYTES", 524_288_000)
     current_usage = get_owner_storage_usage(user=user, session_key=session_key)
     projected_usage = current_usage + incoming_bytes
 
