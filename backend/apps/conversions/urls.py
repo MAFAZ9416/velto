@@ -1,5 +1,5 @@
 """
-URL patterns for the conversions app — Security Hardened, Job Processing & Object Storage Enabled.
+URL patterns for the conversions app — Public API Contract, OpenAPI & Versioned Endpoints.
 """
 
 from django.urls import path
@@ -8,6 +8,8 @@ from apps.conversions.views import (
     ConversionJobListCreateView,
     ConversionJobDetailView,
     ConversionJobCancelView,
+    ConversionJobRetryView,
+    ConversionHistoryListView,
     ConversionJobDownloadView,
     QueueStatusView,
     PdfUtilitiesView,
@@ -21,40 +23,32 @@ from apps.conversions.views import (
 app_name = "conversions"
 
 urlpatterns = [
-    # GET /api/conversions/supported-formats/
+    # Format pair discovery
+    path("formats/", SupportedFormatsView.as_view(), name="formats"),
     path("supported-formats/", SupportedFormatsView.as_view(), name="supported-formats"),
 
-    # GET /api/conversions/security/diagnostics/
-    path("security/diagnostics/", SecurityDiagnosticsView.as_view(), name="security-diagnostics"),
+    # History & pagination
+    path("history/", ConversionHistoryListView.as_view(), name="history"),
 
-    # GET /api/conversions/queue-status/
+    # Diagnostics & Queue
+    path("security/diagnostics/", SecurityDiagnosticsView.as_view(), name="security-diagnostics"),
     path("queue-status/", QueueStatusView.as_view(), name="queue-status"),
 
-    # POST /api/conversions/upload-url/
+    # Upload workflow
     path("upload-url/", PresignedUploadUrlView.as_view(), name="upload-url"),
-
-    # POST /api/conversions/pdf/utilities/
-    path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
-
-    # POST /api/conversions/ocr/
-    path("ocr/", OcrUtilitiesView.as_view(), name="ocr-utilities"),
-
-    # GET  /api/conversions/
-    # POST /api/conversions/
-    path("", ConversionJobListCreateView.as_view(), name="job-list-create"),
-
-    # GET /api/conversions/{job_id}/
-    path("<uuid:job_id>/", ConversionJobDetailView.as_view(), name="job-detail"),
-
-    # POST /api/conversions/{job_id}/cancel/
-    path("<uuid:job_id>/cancel/", ConversionJobCancelView.as_view(), name="job-cancel"),
-
-    # POST /api/conversions/{job_id}/finalize-upload/
     path("<uuid:job_id>/finalize-upload/", FinalizeUploadView.as_view(), name="job-finalize-upload"),
 
-    # GET /api/conversions/{job_id}/download-url/
-    path("<uuid:job_id>/download-url/", PresignedDownloadUrlView.as_view(), name="job-download-url"),
+    # Document & OCR utilities
+    path("pdf/utilities/", PdfUtilitiesView.as_view(), name="pdf-utilities"),
+    path("ocr/", OcrUtilitiesView.as_view(), name="ocr-utilities"),
 
-    # GET /api/conversions/{job_id}/download/
+    # Jobs collection (GET list, POST upload & create job)
+    path("", ConversionJobListCreateView.as_view(), name="job-list-create"),
+
+    # Job lifecycle & actions
+    path("<uuid:job_id>/", ConversionJobDetailView.as_view(), name="job-detail"),
+    path("<uuid:job_id>/cancel/", ConversionJobCancelView.as_view(), name="job-cancel"),
+    path("<uuid:job_id>/retry/", ConversionJobRetryView.as_view(), name="job-retry"),
+    path("<uuid:job_id>/download-url/", PresignedDownloadUrlView.as_view(), name="job-download-url"),
     path("<uuid:job_id>/download/", ConversionJobDownloadView.as_view(), name="job-download"),
 ]

@@ -40,6 +40,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "corsheaders",
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -55,6 +56,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",          # must be first
     "django.middleware.security.SecurityMiddleware",
+    "apps.core.middleware.RequestIdMiddleware",        # attaches X-Request-ID
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -149,6 +151,7 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 90  # 90 days
 # ── Django REST Framework ──────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
+        "apps.core.renderers.VeltoResponseRenderer",
         "rest_framework.renderers.JSONRenderer",
     ],
     "DEFAULT_PARSER_CLASSES": [
@@ -165,7 +168,26 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_CLASSES": [],
     "DEFAULT_THROTTLE_RATES": {},
-    "EXCEPTION_HANDLER": "apps.core.exceptions.velto_exception_handler",
+    "EXCEPTION_HANDLER": "apps.core.exceptions.custom_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "VELTO Conversion API",
+    "DESCRIPTION": (
+        "Production-grade file conversion SaaS API providing secure document, "
+        "image, and spreadsheet transformations."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "TAGS": [
+        {"name": "System", "description": "Liveness and readiness health checks"},
+        {"name": "Discovery", "description": "Conversion pair and format specifications discovery"},
+        {"name": "Upload", "description": "Presigned upload URL generation and upload finalization"},
+        {"name": "Jobs", "description": "Conversion job lifecycle management, status, retry, cancel, delete"},
+        {"name": "Download", "description": "Secure file stream and presigned download URL endpoints"},
+        {"name": "History", "description": "User and anonymous session conversion history with filtering and pagination"},
+    ],
 }
 
 # ── CORS ───────────────────────────────────────────────────────────────────────

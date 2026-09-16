@@ -19,6 +19,9 @@ from rest_framework.views import APIView
 from apps.conversions.models import ConversionJob, JobStatus
 from apps.conversions.serializers import ConversionJobSerializer
 
+from drf_spectacular.utils import extend_schema
+from apps.conversions.serializers import ConversionHistoryQuerySerializer
+
 logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = [
@@ -39,6 +42,14 @@ class HistoryListView(APIView):
       ?target_format=pdf|docx|...
     """
 
+    @extend_schema(
+        summary="Legacy Conversion History List",
+        description="Returns terminal conversion jobs for the current session or user.",
+        parameters=[ConversionHistoryQuerySerializer],
+        responses={200: ConversionJobSerializer(many=True)},
+        tags=["History"],
+        operation_id="legacy_history_list",
+    )
     def get(self, request):
         # Base queryset — owned by this session or user
         if request.user and request.user.is_authenticated:

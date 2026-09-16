@@ -44,8 +44,11 @@ class ConversionJobSerializer(serializers.ModelSerializer):
     )
     status_label = serializers.CharField(source="get_status_display", read_only=True)
 
-    # Dynamically computed — only present when status=completed and file exists
+    # Computed serializer method fields
     download_url = serializers.SerializerMethodField()
+    download_available = serializers.SerializerMethodField()
+    cancellation_available = serializers.SerializerMethodField()
+    retry_available = serializers.SerializerMethodField()
 
     class Meta:
         model = ConversionJob
@@ -73,11 +76,16 @@ class ConversionJobSerializer(serializers.ModelSerializer):
             "output_filename",
             "output_size_bytes",
             "download_url",
+            "download_available",
+            "cancellation_available",
+            "retry_available",
             "created_at",
+            "updated_at",
             "started_at",
             "completed_at",
             "failed_at",
             "cancelled_at",
+            "expires_at",
             "error_message",
         ]
         read_only_fields = fields
@@ -85,25 +93,51 @@ class ConversionJobSerializer(serializers.ModelSerializer):
     def get_download_url(self, obj: ConversionJob) -> str | None:
         """
         Return the download URL when the job is completed and the output file exists.
-
-        The URL is a relative path (e.g. /api/conversions/<id>/download/) so it
-        works behind any domain or reverse proxy.
         """
         from apps.conversions.models import JobStatus
         from pathlib import Path
 
         if obj.status != JobStatus.COMPLETED:
             return None
-        if not obj.output_path:
-            return None
-        # Only return URL if the file physically exists
-        if not Path(obj.output_path).exists():
-            return None
+        if obj.output_storage_key:
+            try:
+                return reverse("conversions:job-download-url", kwargs={"job_id": obj.id})
+            except Exception:
+                pass
+        if obj.output_path and Path(obj.output_path).exists():
+            try:
+                return reverse("conversions:job-download", kwargs={"job_id": obj.id})
+            except Exception:
+                pass
+        return None
 
-        try:
-            return reverse("conversions:job-download", kwargs={"job_id": obj.id})
-        except Exception:
-            return None
+    def get_download_available(self, obj: ConversionJob) -> bool:
+        from apps.conversions.models import JobStatus
+        from pathlib import Path
+        if obj.status != JobStatus.COMPLETED:
+            return False
+        if obj.output_storage_key:
+            return True
+        if obj.output_path and Path(obj.output_path).exists():
+            return True
+        return False
+
+    def get_cancellation_available(self, obj: ConversionJob) -> bool:
+        from apps.conversions.models import JobStatus
+        return obj.status in (JobStatus.PENDING, JobStatus.QUEUED, JobStatus.STARTED, JobStatus.PROCESSING)
+
+    def get_retry_available(self, obj: ConversionJob) -> bool:
+        from apps.conversions.models import JobStatus
+        from pathlib import Path
+        if obj.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
+            return False
+        if obj.retry_count >= obj.max_retries:
+            return False
+        if obj.input_storage_key:
+            return True
+        if obj.input_path and Path(obj.input_path).exists():
+            return True
+        return False
 
 
 # ── Input serializer ───────────────────────────────────────────────────────────
@@ -268,5 +302,104 @@ class PresignedUploadRequestSerializer(serializers.Serializer):
                 {"target_format": f"Converting from '{source_format}' to '{target_format}' is not supported."}
             )
         return attrs
+
+
+class FormatDiscoverySerializer(serializers.Serializer):
+    """
+    Read serializer for format pair discovery endpoint (GET /api/v1/conversions/formats/).
+    """
+    source = serializers.CharField()
+    target = serializers.CharField()
+    source_label = serializers.CharField()
+    target_label = serializers.CharField()
+    category = serializers.CharField()
+    enabled = serializers.BooleanField(default=True)
+    mime_types = serializers.ListField(child=serializers.CharField(), required=False)
+    max_file_size = serializers.IntegerField(required=False)
+    restrictions = serializers.DictField(required=False)
+
+
+class RetryJobResponseSerializer(serializers.Serializer):
+    """
+    Response serializer for POST /api/v1/conversions/{job_id}/retry/.
+    """
+    original_job_id = serializers.CharField()
+    new_job_id = serializers.CharField()
+    status = serializers.CharField()
+    message = serializers.CharField()
+
+
+class ConversionHistoryQuerySerializer(serializers.Serializer):
+    """
+    Query parameter serializer for GET /api/v1/conversions/history/.
+    """
+    status = serializers.CharField(required=False)
+    source = serializers.CharField(required=False)
+    source_format = serializers.CharField(required=False)
+    target = serializers.CharField(required=False)
+    target_format = serializers.CharField(required=False)
+    date_from = serializers.DateField(required=False)
+    date_to = serializers.DateField(required=False)
+    search = serializers.CharField(required=False)
+    ordering = serializers.CharField(required=False, default="-created_at")
+    page = serializers.IntegerField(required=False, default=1, min_value=1)
+    page_size = serializers.IntegerField(required=False, default=20, min_value=1, max_value=100)
+
+
+class HealthCheckSerializer(serializers.Serializer):
+    status = serializers.CharField(default="ok")
+    service = serializers.CharField(default="velto-conversion")
+
+
+class ReadinessCheckSerializer(serializers.Serializer):
+    status = serializers.CharField(default="ready")
+    service = serializers.CharField(default="velto-conversion")
+    checks = serializers.DictField()
+
+
+class CancelJobResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    job = ConversionJobSerializer()
+
+
+class DeleteJobResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+class PresignedUploadResponseSerializer(serializers.Serializer):
+    job_id = serializers.CharField()
+    upload_url = serializers.CharField()
+    fields = serializers.DictField()
+    storage_key = serializers.CharField()
+    expires_in = serializers.IntegerField()
+    max_file_size = serializers.IntegerField()
+    backend = serializers.CharField()
+
+
+class PresignedDownloadResponseSerializer(serializers.Serializer):
+    job_id = serializers.CharField()
+    download_url = serializers.CharField()
+    expires_in = serializers.IntegerField()
+    filename = serializers.CharField()
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    message = serializers.CharField()
+    details = serializers.DictField(default=dict)
+    request_id = serializers.CharField()
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(default=False)
+    data = serializers.SerializerMethodField(default=None)
+    error = ErrorDetailSerializer()
+
+
+class SuccessEnvelopeSerializer(serializers.Serializer):
+    success = serializers.BooleanField(default=True)
+    data = serializers.DictField()
+    error = serializers.SerializerMethodField(default=None)
+
 
 
