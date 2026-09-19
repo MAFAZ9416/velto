@@ -10,20 +10,22 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from apps.core.views import HealthCheckView, ReadinessCheckView
+from apps.core.views import HealthCheckView, ReadinessCheckView, MetricsView, OperationalMonitoringView
 from apps.conversions.views import PdfUtilitiesView, QueueStatusView
 
 urlpatterns = [
     # Django admin (internal operational use)
     path("admin/", admin.site.urls),
 
-    # Top-level Health and Readiness endpoints
+    # Top-level Health, Readiness, and Prometheus Metrics endpoints
     path("health/", HealthCheckView.as_view(), name="health"),
     path("ready/", ReadinessCheckView.as_view(), name="readiness"),
+    path("internal/metrics/", MetricsView.as_view(), name="internal-metrics"),
 
     # Versioned API V1 endpoints (/api/v1/)
     path("api/v1/health/", HealthCheckView.as_view(), name="v1-health"),
     path("api/v1/ready/", ReadinessCheckView.as_view(), name="v1-readiness"),
+    path("api/v1/internal/operations/", OperationalMonitoringView.as_view(), name="v1-internal-operations"),
     path("api/v1/auth/", include(("apps.users.urls", "v1-auth"), namespace="v1-auth")),
     path("api/v1/conversions/", include(("apps.conversions.urls", "v1-conversions"), namespace="v1-conversions")),
     path("api/v1/pdf/utilities/", PdfUtilitiesView.as_view(), name="v1-pdf-utilities"),

@@ -206,11 +206,79 @@ def recover_stale_jobs_task(self, timeout_minutes: int = 15) -> dict:
     return {"recovered_count": recovered_count, "timestamp": timezone.now().isoformat()}
 
 
+from celery.signals import (
+    task_prerun,
+    task_postrun,
+    task_failure,
+    task_retry,
+)
+from apps.core.logging import log_event
+from apps.core.metrics import (
+    record_celery_task_started,
+    record_celery_task_completed,
+    record_celery_task_failed,
+    record_celery_task_retried,
+    record_conversion_metrics,
+)
+
+@task_prerun.connect
+def _on_task_prerun(task_id=None, task=None, *args, **kwargs):
+    queue = "celery"
+    if task and hasattr(task, "request") and task.request:
+        queue = getattr(task.request, "delivery_info", {}).get("routing_key", "celery") or "celery"
+    record_celery_task_started(queue)
+    log_event("celery.task.started", service="worker", task_id=task_id or "", queue_name=queue)
+
+@task_postrun.connect
+def _on_task_postrun(task_id=None, task=None, retval=None, state=None, *args, **kwargs):
+    queue = "celery"
+    if task and hasattr(task, "request") and task.request:
+        queue = getattr(task.request, "delivery_info", {}).get("routing_key", "celery") or "celery"
+    record_celery_task_completed(queue)
+    log_event("celery.task.completed", service="worker", task_id=task_id or "", status=state or "SUCCESS", queue_name=queue)
+
+@task_failure.connect
+def _on_task_failure(task_id=None, exception=None, *args, **kwargs):
+    record_celery_task_failed("celery")
+    log_event("celery.task.failed", service="worker", task_id=task_id or "", error_category="task_failure")
+
+@task_retry.connect
+def _on_task_retry(request=None, *args, **kwargs):
+    task_id = request.id if request else ""
+    record_celery_task_retried("celery")
+    log_event("celery.task.retried", service="worker", task_id=task_id, queue_name="celery")
+
+
 def _mark_job_cancelled(job: ConversionJob) -> None:
     """Helper to finalize job status as CANCELLED and clean up workspace."""
+    now = timezone.now()
+    duration_ms = None
+    if job.started_at:
+        duration_ms = int((now - job.started_at).total_seconds() * 1000)
+    elif job.created_at:
+        duration_ms = int((now - job.created_at).total_seconds() * 1000)
+
     with transaction.atomic():
         job.status = JobStatus.CANCELLED
-        job.cancelled_at = timezone.now()
+        job.cancelled_at = now
         job.stage_message = "Conversion job was cancelled."
-        job.save(update_fields=["status", "cancelled_at", "stage_message"])
+        if duration_ms is not None:
+            job.duration_ms = duration_ms
+        job.save(update_fields=["status", "cancelled_at", "stage_message", "duration_ms"])
+
+    record_conversion_metrics(
+        status=JobStatus.CANCELLED,
+        source_format=job.source_format,
+        target_format=job.target_format,
+    )
+    log_event(
+        "conversion.cancelled",
+        service="conversion",
+        job_id=str(job.id),
+        user_id=str(job.user_id) if job.user_id else None,
+        source_format=job.source_format,
+        target_format=job.target_format,
+        status=JobStatus.CANCELLED,
+        duration_ms=duration_ms,
+    )
     ConversionService.cleanup_job_files(job)

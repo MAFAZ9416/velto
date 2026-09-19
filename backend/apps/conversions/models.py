@@ -137,6 +137,18 @@ class ConversionJob(models.Model):
         default="",
         help_text="Machine-readable error code.",
     )
+    error_category = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Taxonomy category for error classification.",
+    )
+    duration_ms = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Total execution duration in milliseconds.",
+    )
 
     # ── Retry & Execution tracking ────────────────────────────────────────────
     retry_count = models.PositiveIntegerField(
@@ -267,6 +279,10 @@ class ConversionJob(models.Model):
             models.Index(fields=["session_key", "created_at"]),
             models.Index(fields=["user", "status", "created_at"]),
             models.Index(fields=["session_key", "status", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["error_category", "created_at"]),
+            models.Index(fields=["started_at"]),
+            models.Index(fields=["completed_at"]),
             models.Index(fields=["status", "expires_at"]),
             models.Index(fields=["cleanup_status", "expires_at"]),
             models.Index(fields=["status", "last_heartbeat"]),

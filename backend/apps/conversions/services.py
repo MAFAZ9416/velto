@@ -53,6 +53,10 @@ from apps.conversions.security import (
 
 logger = logging.getLogger(__name__)
 
+from apps.core.logging import log_event
+from apps.core.metrics import record_conversion_metrics
+from apps.core.exceptions import derive_error_category
+
 
 class ConversionServiceError(Exception):
     """Raised for business-logic errors in ConversionService (e.g. invalid format pair)."""
@@ -384,6 +388,17 @@ class ConversionService:
             staged_path,
             input_key,
         )
+        record_conversion_metrics("created", source_format=source_format, target_format=target_format)
+        log_event(
+            "conversion.created",
+            service="conversion",
+            job_id=str(job.id),
+            user_id=str(job.user.id) if job.user and job.user.is_authenticated else None,
+            source_format=source_format,
+            target_format=target_format,
+            status=JobStatus.PENDING,
+            file_size_bytes=total_bytes,
+        )
         return job
 
     # ── Task dispatch ─────────────────────────────────────────────────────────
@@ -452,6 +467,7 @@ class ConversionService:
                     f"{job.source_format} → {job.target_format}. "
                     "This format pair will be supported in a future release."
                 ),
+                error_category="conversion_engine_error",
             )
             return job
 
@@ -546,7 +562,7 @@ class ConversionService:
 
         except ConversionError as exc:
             logger.warning("process_job: engine/security raised error for job %s: %s", job.id, exc)
-            cls._fail_job(job, user_message=str(exc), output_path=result_path or output_path)
+            cls._fail_job(job, user_message=str(exc), output_path=result_path or output_path, exc=exc)
             return job
         except Exception as exc:
             logger.exception("process_job: unexpected engine error for job %s", job.id)
@@ -554,6 +570,7 @@ class ConversionService:
                 job,
                 user_message="An unexpected error occurred during conversion. Please try again later.",
                 output_path=result_path or output_path,
+                exc=exc,
             )
             return job
 
@@ -566,6 +583,20 @@ class ConversionService:
             logger.warning("Could not upload generated output to storage adapter for job %s: %s", job.id, exc)
 
         # ── Mark COMPLETED ──────────────────────────────────────────────────
+        now = timezone.now()
+        duration_seconds = 0.0
+        duration_ms = None
+        if job.started_at:
+            duration_seconds = (now - job.started_at).total_seconds()
+            duration_ms = int(duration_seconds * 1000)
+        elif job.created_at:
+            duration_seconds = (now - job.created_at).total_seconds()
+            duration_ms = int(duration_seconds * 1000)
+
+        queue_wait_seconds = 0.0
+        if job.started_at and job.created_at:
+            queue_wait_seconds = max(0.0, (job.started_at - job.created_at).total_seconds())
+
         output_size = Path(output_path).stat().st_size
         updated_opts = dict(runtime_opts)
         for pw_key in ("password", "user_password", "owner_password"):
@@ -575,16 +606,38 @@ class ConversionService:
 
         with transaction.atomic():
             job.status = JobStatus.COMPLETED
-            job.completed_at = timezone.now()
+            job.completed_at = now
+            job.duration_ms = duration_ms
             job.output_path = output_path
             job.output_filename = output_filename
             job.output_size_bytes = output_size
             job.output_storage_key = output_storage_key
             job.save(update_fields=[
-                "status", "completed_at",
+                "status", "completed_at", "duration_ms",
                 "output_path", "output_filename", "output_size_bytes",
                 "output_storage_key", "options",
             ])
+
+        record_conversion_metrics(
+            status=JobStatus.COMPLETED,
+            source_format=job.source_format,
+            target_format=job.target_format,
+            duration_seconds=max(0.0, duration_seconds),
+            queue_wait_seconds=max(0.0, queue_wait_seconds),
+        )
+
+        log_event(
+            "conversion.completed",
+            service="conversion",
+            job_id=str(job.id),
+            user_id=str(job.user_id) if job.user_id else None,
+            source_format=job.source_format,
+            target_format=job.target_format,
+            status=JobStatus.COMPLETED,
+            duration_ms=duration_ms,
+            file_size_bytes=job.file_size_bytes,
+            output_size_bytes=output_size,
+        )
 
         # Clean up local input file
         cls._safe_delete_file(job.input_path, label="input")
@@ -689,13 +742,56 @@ class ConversionService:
         job: ConversionJob,
         user_message: str,
         output_path: Optional[str] = None,
+        error_category: Optional[str] = None,
+        exc: Optional[Exception] = None,
     ) -> None:
         """Transition a job to FAILED and store a user-safe error message."""
+        cat = error_category or derive_error_category(exc, None)
+        now = timezone.now()
+
+        duration_seconds = 0.0
+        duration_ms = None
+        if job.started_at:
+            duration_seconds = (now - job.started_at).total_seconds()
+            duration_ms = int(duration_seconds * 1000)
+        elif job.created_at:
+            duration_seconds = (now - job.created_at).total_seconds()
+            duration_ms = int(duration_seconds * 1000)
+
+        queue_wait_seconds = 0.0
+        if job.started_at and job.created_at:
+            queue_wait_seconds = max(0.0, (job.started_at - job.created_at).total_seconds())
+
         with transaction.atomic():
             job.status = JobStatus.FAILED
             job.error_message = user_message
-            job.completed_at = timezone.now()
-            job.save(update_fields=["status", "error_message", "completed_at"])
+            job.error_category = cat
+            job.completed_at = now
+            if duration_ms is not None:
+                job.duration_ms = duration_ms
+            job.save(update_fields=["status", "error_message", "error_category", "completed_at", "duration_ms"])
+
+        record_conversion_metrics(
+            status=JobStatus.FAILED,
+            source_format=job.source_format,
+            target_format=job.target_format,
+            error_category=cat,
+            duration_seconds=max(0.0, duration_seconds),
+            queue_wait_seconds=max(0.0, queue_wait_seconds),
+        )
+
+        log_event(
+            "conversion.failed",
+            service="conversion",
+            job_id=str(job.id),
+            user_id=str(job.user_id) if job.user_id else None,
+            source_format=job.source_format,
+            target_format=job.target_format,
+            status=JobStatus.FAILED,
+            duration_ms=duration_ms,
+            error_code=job.error_code or "CONVERSION_FAILED",
+            error_category=cat,
+        )
 
         cls.cleanup_job_files(job)
 

@@ -137,6 +137,45 @@ def _derive_error_code(exc: Exception, http_status: int) -> str:
     return status_code_map.get(http_status, "INTERNAL_ERROR")
 
 
+def derive_error_category(exc: Exception, http_status: int = 500) -> str:
+    """Map exception instances or HTTP status codes to standardized error categories."""
+    if hasattr(exc, "error_category") and getattr(exc, "error_category"):
+        return str(getattr(exc, "error_category")).lower()
+
+    if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+        return "authentication_error"
+    if isinstance(exc, (PermissionDenied, DjangoPermissionDenied, OwnershipDenied)):
+        return "authorization_error"
+    if isinstance(exc, (RateLimitExceeded, AbuseLimitExceeded, Throttled, ArchiveLimitExceeded, DocumentLimitExceeded)):
+        return "quota_error"
+    if isinstance(exc, (InvalidMimeType, InvalidFileSignature, FileTooLarge, OutputTooLarge, PathTraversalAttempt, UnsafeFilename)):
+        return "file_error"
+    if isinstance(exc, (ValidationError, SecurityValidationError)):
+        return "validation_error"
+    if isinstance(exc, ProcessingTimeout):
+        return "timeout_error"
+    if isinstance(exc, ConversionError):
+        msg_str = str(exc).lower()
+        if "ocr" in msg_str or "tesseract" in msg_str:
+            return "ocr_error"
+        if "format" in msg_str or "unsupported" in msg_str:
+            return "unsupported_format"
+        return "conversion_engine_error"
+
+    if http_status == 401:
+        return "authentication_error"
+    if http_status == 403:
+        return "authorization_error"
+    if http_status in (400, 422):
+        return "validation_error"
+    if http_status == 429:
+        return "quota_error"
+    if http_status == 503:
+        return "external_service_error"
+
+    return "internal_error"
+
+
 def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Response | None:
     """
     Global DRF exception handler formatting all API error responses into standard envelope.

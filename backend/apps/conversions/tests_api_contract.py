@@ -121,7 +121,7 @@ class ApiContractTests(TestCase):
 
     def test_readiness_check_endpoint_db_failure(self):
         """GET /ready/ returns 503 Service Unavailable when DB connection fails."""
-        with patch("django.db.connection.ensure_connection", side_effect=Exception("Database unreachable")):
+        with patch("apps.core.views.connection.ensure_connection", side_effect=Exception("Database unreachable")):
             res = self.client.get("/ready/")
             self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
             body = res.json()

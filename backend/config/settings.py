@@ -265,5 +265,67 @@ STORAGE_QUOTA_BYTES = int(os.environ.get("STORAGE_QUOTA_BYTES", 524_288_000))
 # Retention period for completed output files and staging workspace (24 hours default)
 STORAGE_RETENTION_HOURS = int(os.environ.get("STORAGE_RETENTION_HOURS", 24))
 
+# Optional internal metrics authentication token
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", None)
+
+# ── Structured Logging Configuration ──────────────────────────────────────────
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "sensitive_redaction": {
+            "()": "apps.core.logging.SensitiveDataRedactionFilter",
+        },
+    },
+    "formatters": {
+        "json": {
+            "()": "apps.core.logging.VeltoJsonFormatter",
+        },
+        "readable": {
+            "format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json" if os.environ.get("ENVIRONMENT", "development").lower() in ("production", "prod", "staging") else "readable",
+            "filters": ["sensitive_redaction"],
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": os.environ.get("LOG_LEVEL", "INFO"),
+    },
+}
+
+# ── Sentry Error Tracking ─────────────────────────────────────────────────────
+def _sentry_before_send(event, hint):
+    request_info = event.get("request", {})
+    if request_info:
+        headers = request_info.get("headers", {})
+        for sensitive_key in ("Authorization", "Cookie", "Set-Cookie", "X-Api-Key"):
+            if sensitive_key in headers:
+                headers[sensitive_key] = "[REDACTED]"
+    return event
 
 
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "development"),
+        release=os.environ.get("SENTRY_RELEASE", "velto-conversion@1.0.0"),
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
+        integrations=[
+            DjangoIntegration(),
+            CeleryIntegration(),
+            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+        ],
+        before_send=_sentry_before_send,
+    )
