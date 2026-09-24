@@ -1,0 +1,245 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/forms";
+
+/* ── VELTO Design Tokens ────────────────────────────────────────────────────── */
+
+@theme {
+  /* Background tones */
+  --color-velto-black: #050505;
+  --color-velto-black-2: #080808;
+  --color-velto-surface: #0B0B0B;
+  --color-velto-surface-2: #101010;
+  --color-velto-surface-3: #161616;
+  --color-velto-surface-4: #1a1a1a;
+  --color-velto-surface-5: #1e1e1e;
+  --color-velto-surface-hover: #222222;
+
+  /* Gold accents */
+  --color-velto-gold: #D4AF37;
+  --color-velto-gold-light: #F1D27A;
+  --color-velto-gold-dark: #9A7415;
+  --color-velto-gold-deep: #B8860B;
+  --color-velto-gold-muted: #C9A227;
+
+  /* Text tones */
+  --color-velto-ivory: #F5F1E6;
+  --color-velto-text: #D6D1C5;
+  --color-velto-muted: #A7A39A;
+  --color-velto-dim: #77736B;
+
+  /* Semantic */
+  --color-velto-success: #3D8B37;
+  --color-velto-warning: #D4A017;
+  --color-velto-error: #C03030;
+  --color-velto-info: #3A7BD5;
+
+  /* Border & effects */
+  --color-velto-border: rgba(212, 175, 55, 0.15);
+  --color-velto-border-strong: rgba(212, 175, 55, 0.30);
+  --color-velto-glow: rgba(212, 175, 55, 0.08);
+
+  /* Font families */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Global Styles ──────────────────────────────────────────────────────────── */
+
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-velto-black);
+  color: var(--color-velto-text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Selection ──────────────────────────────────────────────────────────────── */
+
+::selection {
+  background-color: rgba(212, 175, 55, 0.25);
+  color: var(--color-velto-ivory);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-velto-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-velto-surface-4);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-velto-dim);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-velto-surface-4) var(--color-velto-black);
+}
+
+/* ── Focus Styles ───────────────────────────────────────────────────────────── */
+
+*:focus-visible {
+  outline: 2px solid var(--color-velto-gold);
+  outline-offset: 2px;
+}
+
+/* ── Typography ─────────────────────────────────────────────────────────────── */
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-velto-ivory);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--color-velto-gold);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--color-velto-gold-light);
+}
+
+/* ── Form Elements ──────────────────────────────────────────────────────────── */
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="number"],
+textarea,
+select {
+  background-color: var(--color-velto-surface-2);
+  border: 1px solid var(--color-velto-surface-4);
+  color: var(--color-velto-ivory);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--color-velto-gold);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12);
+  outline: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-velto-dim);
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────────── */
+
+@keyframes velto-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes velto-pulse-gold {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes velto-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes velto-progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+/* ── Reduced Motion ─────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Utility Classes ────────────────────────────────────────────────────────── */
+
+.velto-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-velto-surface-2) 25%,
+    var(--color-velto-surface-4) 50%,
+    var(--color-velto-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: velto-shimmer 1.8s ease-in-out infinite;
+}
+
+.velto-fade-in {
+  animation: velto-fade-in 0.4s ease-out forwards;
+}
+
+.velto-gold-gradient {
+  background: linear-gradient(135deg, var(--color-velto-gold-dark), var(--color-velto-gold), var(--color-velto-gold-light));
+}
+
+.velto-gold-text {
+  background: linear-gradient(135deg, var(--color-velto-gold), var(--color-velto-gold-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.velto-card {
+  background-color: var(--color-velto-surface);
+  border: 1px solid var(--color-velto-surface-4);
+  border-radius: 0.75rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.velto-card:hover {
+  border-color: var(--color-velto-border);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.04);
+}
+
+.velto-divider {
+  border-color: var(--color-velto-surface-4);
+}
+
+/* Gold glow effect for important elements */
+.velto-glow {
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.06),
+              0 0 30px rgba(212, 175, 55, 0.03);
+}
+
+/* Safe area handling for mobile */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
