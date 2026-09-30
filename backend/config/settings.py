@@ -210,7 +210,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
-_raw_cors = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+_raw_cors = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3001,http://127.0.0.1:3000")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()]
 CORS_ALLOW_CREDENTIALS = True  # needed so the browser sends the session cookie
 

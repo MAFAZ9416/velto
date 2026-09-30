@@ -14,6 +14,7 @@ Integrated with:
 import logging
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db import transaction
@@ -617,6 +618,10 @@ class ConversionJobDownloadView(APIView):
                 content_type=content_type,
                 as_attachment=True,
                 filename=download_name,
+            )
+            encoded_name = quote(download_name, safe="")
+            response["Content-Disposition"] = (
+                f'attachment; filename="{download_name}"; filename*=UTF-8\'\'{encoded_name}'
             )
             return response
         except OSError as exc:

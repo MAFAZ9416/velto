@@ -236,6 +236,36 @@ class StorageMilestoneTestCase(TestCase):
 
         ConversionService.cleanup_job_files(job)
 
+    def test_09a_local_download_url_uses_real_download_route(self):
+        """Local storage must not return a non-existent mock URL for downloads."""
+        storage = get_storage_service("local")
+        key = storage.generate_object_key("usr_test", "job_dl_local", "output", "result.jpg")
+
+        ws = ConversionService._create_isolated_workspace("dl_local")
+        tmp_local = str(ws / "result.jpg")
+        with open(tmp_local, "wb") as f:
+            f.write(self.test_png_bytes)
+        storage.upload_file(tmp_local, key)
+
+        job = ConversionJob.objects.create(
+            user=self.user_a,
+            source_format="png",
+            target_format="jpg",
+            original_filename="result.png",
+            status=JobStatus.COMPLETED,
+            output_storage_key=key,
+            output_filename="result.jpg",
+        )
+
+        download_url = ConversionService.get_job_download_url(job)
+
+        self.assertIsNotNone(download_url)
+        self.assertIn("/api/", download_url)
+        self.assertNotIn("local-mock-download", download_url)
+        self.assertTrue(download_url.endswith("/download/"))
+
+        ConversionService.cleanup_job_files(job)
+
     # ── 10. Download Ownership Protection ────────────────────────────────────
 
     def test_10_download_ownership_protection(self):

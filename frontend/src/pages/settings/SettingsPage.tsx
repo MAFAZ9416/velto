@@ -87,13 +87,14 @@ export default function SettingsPage() {
             <Card className="p-6">
               <h2 className="text-lg font-semibold text-velto-ivory mb-4">Preferences</h2>
               <div className="space-y-4">
-                <label className="flex items-center justify-between">
+                {/* Email Notifications — backend support coming soon */}
+                <div className="flex items-center justify-between opacity-50 cursor-not-allowed">
                   <div>
                     <p className="text-velto-ivory text-sm font-medium">Email Notifications</p>
-                    <p className="text-xs text-velto-dim">Receive updates about your conversions</p>
+                    <p className="text-xs text-velto-dim">Coming soon — notification preferences</p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4 rounded border-velto-surface-4 bg-velto-surface-2 text-velto-gold focus:ring-velto-gold/30 cursor-pointer" />
-                </label>
+                  <span className="text-xs text-velto-dim border border-velto-surface-4 rounded px-2 py-0.5">Soon</span>
+                </div>
               </div>
             </Card>
           </motion.div>

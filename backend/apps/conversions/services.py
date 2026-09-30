@@ -656,7 +656,10 @@ class ConversionService:
     @classmethod
     def get_job_download_url(cls, job: ConversionJob, expires_in: int = 900) -> Optional[str]:
         """
-        Return a short-lived presigned download URL for a completed output object.
+        Return a browser-safe download URL for a completed output object.
+
+        Local storage adapters may emulate presigned URLs during development, but they must
+        resolve to the real job download route rather than a fake internal mock path.
         """
         if job.status != JobStatus.COMPLETED:
             return None
@@ -665,17 +668,24 @@ class ConversionService:
 
         if job.output_storage_key and storage.object_exists(job.output_storage_key):
             try:
-                return storage.generate_presigned_download_url(
+                generated_url = storage.generate_presigned_download_url(
                     job.output_storage_key,
                     filename=job.output_filename,
                     expires_in=expires_in,
                 )
+                if generated_url and "/local-mock-download/" not in generated_url and "/download/" in generated_url:
+                    return generated_url
             except Exception as exc:
                 logger.error("Error generating presigned download URL for job %s: %s", job.id, exc)
 
-        # Fallback to local output file check
+        # Fallback to the real authenticated/guest download route.
+        from django.urls import reverse
+        try:
+            return reverse("conversions:job-download", kwargs={"job_id": job.id})
+        except Exception:
+            pass
+
         if job.output_path and Path(job.output_path).exists():
-            from django.urls import reverse
             try:
                 return reverse("conversions:job-download", kwargs={"job_id": job.id})
             except Exception:

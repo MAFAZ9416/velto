@@ -1,5 +1,9 @@
 /**
- * VELTO — Processing Page (Guest conversion progress)
+ * VELTO — Processing Page (Guest + Authenticated conversion progress)
+ *
+ * FIX: Guest users submit via the legacy session API (no JWT). This page now
+ * polls the correct endpoint based on auth state, instead of always hitting
+ * the V1 JWT-authenticated route (which returns 401 for guests).
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -10,6 +14,8 @@ import PublicLayout from '../../components/layout/PublicLayout';
 import { ProgressBar } from '../../components/ui/index';
 import Button from '../../components/ui/Button';
 import { conversionService } from '../../services/conversion';
+import { legacyApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { formatFileSize } from '../../utils';
 import { FORMAT_LABELS } from '../../types';
 import type { ConversionJob } from '../../types';
@@ -38,6 +44,7 @@ function getStageIndex(job: ConversionJob | null): number {
 export default function ProcessingPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const jobId = searchParams.get('id');
 
   const [job, setJob] = useState<ConversionJob | null>(null);
@@ -49,8 +56,19 @@ export default function ProcessingPage() {
 
     const poll = async () => {
       try {
-        const jobData = await conversionService.getJobStatus(jobId);
+        let jobData: ConversionJob;
+
+        if (isAuthenticated) {
+          // Authenticated users: poll V1 JWT-authenticated endpoint
+          jobData = await conversionService.getJobStatus(jobId);
+        } else {
+          // Guest users: poll legacy session-based endpoint (no JWT required)
+          const { data } = await legacyApi.get<ConversionJob>(`/conversions/${jobId}/`);
+          jobData = data;
+        }
+
         setJob(jobData);
+
         if (jobData.status === 'completed') {
           if (intervalRef.current) clearInterval(intervalRef.current);
           setTimeout(() => navigate(`/convert/result/${jobId}`), 1200);
@@ -59,17 +77,22 @@ export default function ProcessingPage() {
           setError(jobData.error_message || 'Conversion failed.');
         }
       } catch (err: any) {
-        // If job not found (guest session), show generic progress
         if (err.status === 401 || err.status === 403) {
-          // Guest user — can't poll V1, simulate progress
+          // Session may have expired — navigate to result page optimistically
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          navigate(`/convert/result/${jobId}`);
+        } else if (err.status === 404) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          setError('Conversion not found. It may have expired.');
         }
+        // Transient network errors: continue polling
       }
     };
 
     poll();
     intervalRef.current = setInterval(poll, 2000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [jobId, navigate]);
+  }, [jobId, navigate, isAuthenticated]);
 
   const stageIndex = getStageIndex(job);
   const progress = job?.progress || Math.min(stageIndex * 25, 95);

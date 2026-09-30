@@ -3,7 +3,7 @@
  * Handles both authenticated (V1) and guest (legacy) conversion operations.
  */
 
-import api, { legacyApi } from './api';
+import api, { legacyApi, tokenStorage } from './api';
 import type {
   ConversionJob,
   SupportedFormatsResponse,
@@ -81,9 +81,11 @@ export const conversionService = {
 
   /**
    * GET /api/v1/conversions/{id}/ (authenticated)
+   * or GET /api/conversions/{id}/ (guest/session) depending on auth state.
    */
   async getJobStatus(jobId: string): Promise<ConversionJob> {
-    const { data } = await api.get(`/conversions/${jobId}/`);
+    const client = tokenStorage.getAccess() ? api : legacyApi;
+    const { data } = await client.get(`/conversions/${jobId}/`);
     return data;
   },
 
@@ -139,11 +141,13 @@ export const conversionService = {
   },
 
   /**
-   * GET /api/v1/conversions/{id}/download/ (stream file)
+   * GET /api/v1/conversions/{id}/download/ (authenticated)
+   * or GET /api/conversions/{id}/download/ (guest/session)
    */
   getDownloadUrl(jobId: string): string {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-    return `${baseUrl}/api/v1/conversions/${jobId}/download/`;
+    const apiRoot = tokenStorage.getAccess() ? `${baseUrl}/api/v1` : `${baseUrl}/api`;
+    return `${apiRoot}/conversions/${jobId}/download/`;
   },
 
   /**
@@ -157,21 +161,90 @@ export const conversionService = {
   },
 
   /**
-   * Download a completed job's file (handles both direct and presigned)
+   * Download a completed job's file through the real backend download endpoint.
+   * This honors auth/session ownership and avoids fake or malformed URLs.
    */
   async downloadFile(jobId: string): Promise<void> {
+    const client = tokenStorage.getAccess() ? api : legacyApi;
+    const url = this.getDownloadUrl(jobId);
+
     try {
-      const { download_url } = await this.getPresignedDownloadUrl(jobId);
-      window.open(download_url, '_blank');
-    } catch {
-      // Fallback to direct download
-      const url = this.getDownloadUrl(jobId);
+      const response = await client.get(url, { responseType: 'blob' });
+      const contentDisposition = response.headers['content-disposition'] as string | undefined;
+      const rawContentType = response.headers['content-type'];
+      const contentType = Array.isArray(rawContentType) ? rawContentType[0] : rawContentType;
+      const normalizedContentType = typeof contentType === 'string' && contentType ? contentType : undefined;
+      const blob = new Blob([response.data as BlobPart], {
+        type: normalizedContentType || 'application/octet-stream',
+      });
+      const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = '';
+      link.href = downloadUrl;
+      link.download = this.parseDownloadFilename(contentDisposition, jobId, normalizedContentType);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Failed to download conversion output:', error);
+      const fallbackUrl = this.getDownloadUrl(jobId);
+      const link = document.createElement('a');
+      link.href = fallbackUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
+  },
+
+  parseDownloadFilename(contentDisposition?: string, fallbackJobId?: string, contentType?: string): string {
+    const resolvedContentType = typeof contentType === 'string' ? contentType.toLowerCase() : '';
+    const defaultExtension = this.getExtensionFromContentType(resolvedContentType) || '.bin';
+
+    if (!contentDisposition) {
+      return fallbackJobId ? `converted-${fallbackJobId}${defaultExtension}` : `download${defaultExtension}`;
+    }
+
+    const utf8Match = contentDisposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      const decoded = decodeURIComponent(utf8Match[1].trim());
+      if (decoded) {
+        return decoded;
+      }
+    }
+
+    const normalMatch = contentDisposition.match(/filename\s*=\s*"?([^";]+)"?/i);
+    if (normalMatch?.[1]) {
+      const fileName = normalMatch[1].trim();
+      if (fileName) {
+        return fileName;
+      }
+    }
+
+    return fallbackJobId ? `converted-${fallbackJobId}${defaultExtension}` : `download${defaultExtension}`;
+  },
+
+  getExtensionFromContentType(contentType?: string): string {
+    if (!contentType) {
+      return '';
+    }
+
+    const mimeMap: Record<string, string> = {
+      'application/pdf': '.pdf',
+      'application/zip': '.zip',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'text/plain': '.txt',
+      'text/html': '.html',
+      'application/xhtml+xml': '.html',
+      'application/json': '.json',
+      'application/xml': '.xml',
+    };
+
+    return mimeMap[contentType] || '';
   },
 };

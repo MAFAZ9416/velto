@@ -112,12 +112,19 @@ class LocalStorageAdapter(BaseStorageAdapter):
         filename: Optional[str] = None,
         expires_in: int = 900,
     ) -> str:
-        """Emulate presigned download URL for local backend."""
+        """Return a valid local download route for the browser instead of a fake/mock path."""
         dest = self._resolve_key_path(object_key)
         if not dest.exists():
             raise FileNotFoundError(f"Storage object '{object_key}' not found.")
-        fn_param = f"&filename={filename}" if filename else ""
-        return f"/api/conversions/download-url/local-mock-download/?key={object_key}{fn_param}"
+
+        import re
+
+        match = re.search(r"/jobs/([0-9a-fA-F-]{36})/", object_key)
+        if match:
+            job_id = match.group(1)
+            return f"/api/conversions/{job_id}/download/"
+
+        return "/api/conversions/"
 
     def object_exists(self, object_key: str) -> bool:
         try:
