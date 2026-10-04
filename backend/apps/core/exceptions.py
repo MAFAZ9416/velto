@@ -206,7 +206,7 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Respons
         elif isinstance(response.data, list):
             message = "; ".join(str(e) for e in response.data)
 
-        # Build standard error envelope
+        # Build standard error envelope with backward compatibility keys
         response.data = {
             "success": False,
             "data": None,
@@ -216,6 +216,8 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Respons
                 "details": details,
                 "request_id": request_id,
             },
+            "message": message,
+            "detail": message,
         }
         return response
 

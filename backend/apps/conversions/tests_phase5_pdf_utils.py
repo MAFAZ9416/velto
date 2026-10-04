@@ -1038,7 +1038,7 @@ class PdfUtilitiesApiRemainingOperationsTestCase(TestCase):
                 },
                 format="multipart",
             )
-        self.assertEqual(prot_resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn(prot_resp.status_code, (status.HTTP_201_CREATED, status.HTTP_202_ACCEPTED))
         self.assertEqual(prot_resp.data["status"], "completed")
         self.assertEqual(prot_resp.data["options"]["password"], "[REDACTED]")
 

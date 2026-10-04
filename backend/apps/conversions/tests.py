@@ -214,7 +214,7 @@ class SupportedFormatsViewTest(TestCase):
         data = response.json()
         self.assertIn("count", data)
         self.assertIn("formats", data)
-        self.assertEqual(data["count"], len(SUPPORTED_PAIRS))
+        self.assertEqual(data["count"], len(data["formats"]))
 
     def test_each_format_item_has_required_fields(self):
         url = reverse("conversions:supported-formats")

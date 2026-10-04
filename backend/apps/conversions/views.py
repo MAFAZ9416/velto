@@ -140,6 +140,8 @@ class SupportedFormatsView(APIView):
             tgt_label = FORMAT_LABELS.get(tgt, spec_tgt.format_name.upper() if spec_tgt else tgt.upper())
 
             formats_list.append({
+                "source_format": src,
+                "target_format": tgt,
                 "source": src,
                 "target": tgt,
                 "source_label": src_label,
@@ -180,8 +182,12 @@ class ConversionJobListCreateView(APIView):
     """
     GET  /api/conversions/   — list jobs owned by the current session or user.
     POST /api/conversions/   — upload a file, queue background conversion job, return status.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Authorization is enforced via session/user ownership checks inside the view,
+    not by requiring authentication at the permission class level.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated supported via session ownership
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [JobCreateRateThrottle, UploadRateThrottle]
 
@@ -260,8 +266,11 @@ class ConversionJobDetailView(APIView):
     """
     GET /api/v1/conversions/{id}/ — Returns job status.
     DELETE /api/v1/conversions/{id}/ — Deletes job and cleans up storage objects.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     @extend_schema(
         summary="Get Job Status and Details",
         description="Returns detailed job status, progress, timestamps, and action availability flags.",
@@ -322,8 +331,11 @@ class ConversionJobRetryView(APIView):
     """
     POST /api/v1/conversions/{id}/retry/
     Retry a failed or cancelled conversion job.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     @extend_schema(
         summary="Retry Failed or Cancelled Job",
         description="Re-queues a failed or cancelled conversion job if input file is available and retry limit is not exceeded.",
@@ -396,8 +408,11 @@ class ConversionHistoryListView(APIView):
     GET /api/v1/conversions/history/
     GET /api/history/
     Returns user/session conversion history with filtering, pagination, and safe ordering.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Each caller only sees jobs scoped to their own session or user account.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — session/user scoping enforced by filter_jobs_for_request
     @extend_schema(
         summary="Conversion History List",
         description="Returns user/session conversion history with pagination, date filtering, and safe ordering.",
@@ -478,8 +493,11 @@ class ConversionJobCancelView(APIView):
     """
     POST /api/conversions/{id}/cancel/ or POST /api/jobs/{id}/cancel/
     Request cancellation of an active or queued conversion job.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     @extend_schema(
         summary="Cancel Conversion Job",
         description="Cancels an active or queued conversion job and revokes background Celery tasks.",
@@ -542,8 +560,11 @@ class ConversionJobDownloadView(APIView):
     """
     GET /api/conversions/{id}/download/
     Stream the converted output file to the client.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     throttle_classes = [DownloadRateThrottle]
 
     @extend_schema(
@@ -693,7 +714,7 @@ class PdfUtilitiesView(APIView):
     """
     POST /api/v1/pdf/utilities/ — Dedicated API endpoint for PDF Utility operations.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [PdfUtilityRateThrottle, UploadRateThrottle]
 
@@ -809,7 +830,7 @@ class OcrUtilitiesView(APIView):
     """
     POST /api/v1/ocr/ — Dedicated API endpoint for OCR Utility operations.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [OcrRateThrottle, UploadRateThrottle]
 
@@ -965,8 +986,11 @@ class FinalizeUploadView(APIView):
     """
     POST /api/conversions/{id}/finalize-upload/ or POST /api/jobs/{id}/finalize-upload/
     Verifies object existence in storage, performs security checks, marks finalized, and dispatches task.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     @extend_schema(
         summary="Finalize Upload Session",
         description="Verifies file upload completion in storage, performs security validation, and dispatches conversion task.",
@@ -1003,8 +1027,11 @@ class PresignedDownloadUrlView(APIView):
     """
     GET /api/conversions/{id}/download-url/ or GET /api/jobs/{id}/download-url/
     Returns a short-lived presigned download URL for a completed conversion job.
+
+    Supports both anonymous (session-based) and authenticated (JWT) users.
+    Ownership is enforced by check_job_ownership / filter_jobs_for_request.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # AllowAny — guest + authenticated via session/user ownership
     throttle_classes = [DownloadRateThrottle]
 
     @extend_schema(

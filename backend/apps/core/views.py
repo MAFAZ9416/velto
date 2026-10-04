@@ -59,10 +59,13 @@ class HealthCheckView(APIView):
         operation_id="system_health_check",
     )
     def get(self, request):
+        import django
         return Response(
             {
                 "status": "ok",
                 "service": "velto-conversion",
+                "django_version": django.get_version(),
+                "environment": getattr(settings, "ENVIRONMENT", "development"),
             },
             status=status.HTTP_200_OK,
         )

@@ -93,17 +93,33 @@ class ConversionJobSerializer(serializers.ModelSerializer):
     def get_download_url(self, obj: ConversionJob) -> str | None:
         """
         Return the download URL when the job is completed and the output file exists.
+
+        Routing logic:
+        - S3/cloud backends: output_storage_key exists → return presigned download URL
+          endpoint (/download-url/) which generates a short-lived URL.
+        - Local backend: use the direct stream endpoint (/download/) regardless of
+          whether output_storage_key is set, so callers get binary content directly.
         """
         from apps.conversions.models import JobStatus
         from pathlib import Path
 
         if obj.status != JobStatus.COMPLETED:
             return None
-        if obj.output_storage_key:
+
+        # For S3/cloud backends, use the presigned URL endpoint (returns JSON with URL)
+        if obj.output_storage_key and obj.storage_backend != "local":
             try:
                 return reverse("conversions:job-download-url", kwargs={"job_id": obj.id})
             except Exception:
                 pass
+
+        # For local backend (or when output_storage_key is a local path), use stream endpoint
+        if obj.output_storage_key and obj.storage_backend == "local":
+            try:
+                return reverse("conversions:job-download", kwargs={"job_id": obj.id})
+            except Exception:
+                pass
+
         if obj.output_path and Path(obj.output_path).exists():
             try:
                 return reverse("conversions:job-download", kwargs={"job_id": obj.id})
