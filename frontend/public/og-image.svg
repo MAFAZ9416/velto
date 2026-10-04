@@ -1,0 +1,35 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0B0E14"/>
+  
+  <!-- Subtle Gradient Glow -->
+  <circle cx="600" cy="315" r="300" fill="url(#goldGlow)" opacity="0.15"/>
+  
+  <!-- Grid Lines Pattern -->
+  <path d="M0 100H1200M0 200H1200M0 300H1200M0 400H1200M0 500H1200" stroke="#1A202C" stroke-width="1" opacity="0.3"/>
+  <path d="M200 0V630M400 0V630M600 0V630M800 0V630M1000 0V630" stroke="#1A202C" stroke-width="1" opacity="0.3"/>
+
+  <!-- Logo Mark -->
+  <rect x="540" y="160" width="120" height="120" rx="28" fill="url(#goldGradient)"/>
+  <path d="M600 200L570 250H630L600 200Z" fill="#0B0E14"/>
+
+  <!-- Brand Title -->
+  <text x="600" y="340" text-anchor="middle" fill="#F7FAFC" font-family="system-ui, sans-serif" font-weight="900" font-size="56" letter-spacing="-1">VELTO CONVERSION</text>
+  
+  <!-- Tagline -->
+  <text x="600" y="390" text-anchor="middle" fill="#ECC94B" font-family="system-ui, sans-serif" font-weight="700" font-size="28" letter-spacing="2">CONVERT. TRANSFORM. DONE.</text>
+  
+  <!-- Subtitle -->
+  <text x="600" y="440" text-anchor="middle" fill="#A0AEC0" font-family="system-ui, sans-serif" font-weight="500" font-size="22">Universal High-Fidelity Online File Converter • PDF, Word, Excel, Images</text>
+
+  <!-- Gradients -->
+  <defs>
+    <radialGradient id="goldGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(600 315) rotate(90) scale(300)">
+      <stop stop-color="#ECC94B"/>
+      <stop offset="1" stop-color="#0B0E14" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldGradient" x1="540" y1="160" x2="660" y2="280" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6E05E"/>
+      <stop offset="1" stop-color="#D69E2E"/>
+    </linearGradient>
+  </defs>
+</svg>

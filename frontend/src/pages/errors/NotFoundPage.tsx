@@ -1,15 +1,23 @@
 /**
  * VELTO — 404 Not Found Page
+ * SEO-safe 404 error page with noindex metadata and popular tool quick links.
  */
 
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FileQuestion, ArrowLeft, Home, Zap } from 'lucide-react';
+import { FileQuestion, ArrowLeft, Home, Zap, ArrowRight } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import SeoHead from '../../components/seo/SeoHead';
 
 export default function NotFoundPage() {
   return (
     <div className="min-h-screen bg-obsidian-950 flex flex-col justify-between p-6">
+      <SeoHead
+        title="Page Not Found – 404 | VELTO Conversion"
+        description="The requested page could not be found."
+        noindex={true}
+      />
+
       {/* Top Header */}
       <div className="max-w-7xl mx-auto w-full flex items-center justify-between py-4">
         <Link to="/" className="flex items-center gap-2">
@@ -23,12 +31,12 @@ export default function NotFoundPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-md mx-auto text-center my-auto">
+      <div className="max-w-md mx-auto text-center my-auto py-8">
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5 }}
-          className="w-24 h-24 rounded-3xl bg-gold-500/10 border border-gold-500/20 flex items-center justify-center text-gold-400 mx-auto mb-8 shadow-2xl shadow-gold-500/10"
+          className="w-24 h-24 rounded-3xl bg-gold-500/10 border border-gold-500/20 flex items-center justify-center text-gold-400 mx-auto mb-6 shadow-2xl shadow-gold-500/10"
         >
           <FileQuestion className="w-12 h-12" />
         </motion.div>
@@ -55,10 +63,31 @@ export default function NotFoundPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="text-muted-400 text-sm mb-8 leading-relaxed"
+          className="text-muted-400 text-sm mb-6 leading-relaxed"
         >
           The page or converted file route you are looking for has been moved, deleted, or never existed.
         </motion.p>
+
+        {/* Popular Converters Links */}
+        <div className="p-4 rounded-xl bg-obsidian-900 border border-obsidian-800 mb-6 text-left space-y-2">
+          <p className="text-xs font-bold text-ivory-200 uppercase tracking-wider mb-2">
+            Popular File Converters:
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <Link to="/tools/pdf-to-word" className="text-gold-400 hover:underline flex items-center gap-1">
+              <ArrowRight className="w-3 h-3" /> PDF to Word
+            </Link>
+            <Link to="/tools/word-to-pdf" className="text-gold-400 hover:underline flex items-center gap-1">
+              <ArrowRight className="w-3 h-3" /> Word to PDF
+            </Link>
+            <Link to="/tools/pdf-to-jpg" className="text-gold-400 hover:underline flex items-center gap-1">
+              <ArrowRight className="w-3 h-3" /> PDF to JPG
+            </Link>
+            <Link to="/tools/jpg-to-png" className="text-gold-400 hover:underline flex items-center gap-1">
+              <ArrowRight className="w-3 h-3" /> JPG to PNG
+            </Link>
+          </div>
+        </div>
 
         <motion.div
           initial={{ opacity: 0, y: 10 }}

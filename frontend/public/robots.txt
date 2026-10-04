@@ -1,0 +1,24 @@
+# VELTO Conversion — Production Robots Configuration
+User-agent: *
+Allow: /
+Allow: /tools
+Allow: /tools/
+Allow: /pricing
+
+# Disallow private user & authentication routes
+Disallow: /dashboard
+Disallow: /conversions
+Disallow: /account
+Disallow: /settings
+Disallow: /convert/processing
+Disallow: /convert/result/
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
+Disallow: /403
+Disallow: /500
+
+# XML Sitemap Location
+Sitemap: https://velto-brown.vercel.app/sitemap.xml

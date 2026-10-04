@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Check, Zap, Crown, Shield, HelpCircle, ArrowRight, Sparkles } from 'lucide-react';
 import PublicLayout from '../../components/layout/PublicLayout';
+import SeoHead from '../../components/seo/SeoHead';
 import Button from '../../components/ui/Button';
 
 export default function PricingPage() {
@@ -21,7 +22,7 @@ export default function PricingPage() {
     },
     {
       q: "What file formats are supported?",
-      a: "VELTO supports over 50+ formats including PDF, Word (DOCX), Excel (XLSX), PowerPoint (PPTX), Images (PNG, JPG, WEBP, SVG, TIFF), Text, CSV, HTML, and Markdown."
+      a: "VELTO supports formats including PDF, Word (DOCX), Excel (XLSX), PowerPoint (PPTX), Images (PNG, JPG, WEBP, TIFF, BMP, GIF), Text, CSV, HTML, and Markdown."
     },
     {
       q: "Can I cancel my Pro subscription anytime?",
@@ -39,6 +40,7 @@ export default function PricingPage() {
 
   return (
     <PublicLayout>
+      <SeoHead />
       <div className="min-h-screen py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
@@ -104,192 +106,174 @@ export default function PricingPage() {
           </motion.div>
         </div>
 
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto items-stretch">
-          {/* Free Plan */}
+        {/* Pricing Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          {/* Free Tier */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="rounded-2xl bg-obsidian-900/80 border border-obsidian-800 p-8 flex flex-col justify-between hover:border-obsidian-700 transition-colors shadow-xl"
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="rounded-2xl bg-obsidian-900 border border-obsidian-800 p-8 flex flex-col justify-between hover:border-obsidian-700 transition-all shadow-xl"
           >
             <div>
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-ivory-100">Free Tier</h3>
-                  <p className="text-sm text-muted-400 mt-1">For casual quick file conversions</p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-obsidian-800 border border-obsidian-700 flex items-center justify-center text-muted-400">
+                <span className="text-sm font-semibold text-muted-400 uppercase tracking-wider">Guest & Free</span>
+                <span className="p-2 rounded-lg bg-obsidian-800 text-muted-300">
                   <Zap className="w-5 h-5" />
-                </div>
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold text-ivory-100 mt-3">Free Tier</h2>
+              <p className="text-xs text-muted-400 mt-1">Essential file conversion for quick everyday tasks.</p>
+              
+              <div className="mt-6 flex items-baseline">
+                <span className="text-4xl font-extrabold text-ivory-100">$0</span>
+                <span className="text-muted-400 text-sm ml-2">/ forever</span>
               </div>
 
-              <div className="mt-6 mb-8">
-                <div className="flex items-baseline">
-                  <span className="text-4xl font-extrabold text-ivory-100">$0</span>
-                  <span className="text-muted-400 text-sm ml-2">/ forever</span>
-                </div>
-                <p className="text-xs text-muted-500 mt-1">No credit card required</p>
-              </div>
-
-              <div className="space-y-4 text-sm text-ivory-300">
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500/10 text-gold-400 flex items-center justify-center mt-0.5 flex-shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Max file size: <strong>50 MB</strong> per file</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500/10 text-gold-400 flex items-center justify-center mt-0.5 flex-shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span><strong>10 conversions</strong> per day</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500/10 text-gold-400 flex items-center justify-center mt-0.5 flex-shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Standard conversion engine speed</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500/10 text-gold-400 flex items-center justify-center mt-0.5 flex-shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>All core document & image formats</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500/10 text-gold-400 flex items-center justify-center mt-0.5 flex-shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Single file upload at a time</span>
-                </div>
-              </div>
+              <ul className="mt-8 space-y-3 text-sm text-muted-300 border-t border-obsidian-800 pt-6">
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Up to 5 conversions per day</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Max file size: 25 MB</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Standard engine processing speed</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>SSL encrypted file transfer</span>
+                </li>
+              </ul>
             </div>
 
             <div className="mt-8">
               <Link to="/register">
-                <Button variant="secondary" fullWidth className="py-3">
-                  Get Started Free
-                </Button>
+                <Button variant="secondary" fullWidth>Get Started Free</Button>
               </Link>
             </div>
           </motion.div>
 
-          {/* Pro Plan */}
+          {/* Pro Tier (Featured) */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="relative rounded-2xl bg-gradient-to-b from-obsidian-800 to-obsidian-900 border-2 border-gold-500/50 p-8 flex flex-col justify-between shadow-2xl shadow-gold-500/5"
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="relative rounded-2xl bg-gradient-to-b from-obsidian-850 to-obsidian-900 border-2 border-gold-500/60 p-8 flex flex-col justify-between shadow-2xl shadow-gold-500/10 transform md:-translate-y-2"
           >
-            {/* Popular Badge */}
-            <div className="absolute -top-4 right-8 bg-gradient-to-r from-gold-500 to-amber-500 text-obsidian-950 px-4 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1.5">
-              <Crown className="w-3.5 h-3.5" />
+            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gold-500 text-obsidian-950 font-extrabold text-[11px] uppercase tracking-wider shadow-md">
               Most Popular
             </div>
 
             <div>
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-ivory-100 flex items-center gap-2">
-                    Pro Plan
-                    <Sparkles className="w-4 h-4 text-gold-400" />
-                  </h3>
-                  <p className="text-sm text-muted-400 mt-1">For professionals & heavy document power users</p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-gold-500/10 border border-gold-500/30 flex items-center justify-center text-gold-400">
+                <span className="text-sm font-semibold text-gold-400 uppercase tracking-wider">Pro Individual</span>
+                <span className="p-2 rounded-lg bg-gold-500/10 text-gold-400 border border-gold-500/30">
                   <Crown className="w-5 h-5" />
-                </div>
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold text-ivory-100 mt-3">Pro Plan</h2>
+              <p className="text-xs text-muted-400 mt-1">For power users and professionals needing speed & scale.</p>
+              
+              <div className="mt-6 flex items-baseline">
+                <span className="text-4xl font-extrabold text-ivory-100">{isAnnual ? '$9' : '$12'}</span>
+                <span className="text-muted-400 text-sm ml-2">/ month</span>
               </div>
 
-              <div className="mt-6 mb-8">
-                <div className="flex items-baseline">
-                  <span className="text-4xl font-extrabold text-gold-400">
-                    ${isAnnual ? '10' : '12'}
-                  </span>
-                  <span className="text-muted-400 text-sm ml-2">/ month</span>
-                </div>
-                <p className="text-xs text-gold-400/80 mt-1">
-                  {isAnnual ? 'Billed annually ($120/year)' : 'Billed monthly'}
-                </p>
-              </div>
-
-              <div className="space-y-4 text-sm text-ivory-200">
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Max file size: <strong>2 GB</strong> per file</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span><strong>Unlimited</strong> conversions & exports</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span><strong>Priority high-speed server queue</strong></span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Batch conversion (up to <strong>50 files</strong> at once)</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Advanced OCR Text Extraction & PDF Utilities</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gold-500 text-obsidian-950 flex items-center justify-center mt-0.5 flex-shrink-0 font-bold">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>30-day cloud vault storage & 24/7 priority support</span>
-                </div>
-              </div>
+              <ul className="mt-8 space-y-3 text-sm text-ivory-200 border-t border-obsidian-800/80 pt-6">
+                <li className="flex items-center gap-3 font-medium">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Unlimited daily conversions</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Max file size: 500 MB</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>High-speed priority processing queue</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Batch conversion (up to 50 files)</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>OCR scanner text extraction</span>
+                </li>
+              </ul>
             </div>
 
             <div className="mt-8">
               <Link to="/register">
-                <Button variant="primary" fullWidth className="py-3 shadow-lg shadow-gold-500/20">
-                  Upgrade to Pro <ArrowRight className="w-4 h-4 ml-2" />
+                <Button variant="primary" fullWidth iconRight={<ArrowRight className="w-4 h-4" />}>
+                  Start Pro Trial
                 </Button>
+              </Link>
+            </div>
+          </motion.div>
+
+          {/* Business Tier */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+            className="rounded-2xl bg-obsidian-900 border border-obsidian-800 p-8 flex flex-col justify-between hover:border-obsidian-700 transition-all shadow-xl"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-muted-400 uppercase tracking-wider">Teams & Enterprise</span>
+                <span className="p-2 rounded-lg bg-obsidian-800 text-muted-300">
+                  <Shield className="w-5 h-5" />
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold text-ivory-100 mt-3">Business</h2>
+              <p className="text-xs text-muted-400 mt-1">Dedicated enterprise infrastructure with API access.</p>
+              
+              <div className="mt-6 flex items-baseline">
+                <span className="text-4xl font-extrabold text-ivory-100">{isAnnual ? '$29' : '$35'}</span>
+                <span className="text-muted-400 text-sm ml-2">/ month</span>
+              </div>
+
+              <ul className="mt-8 space-y-3 text-sm text-muted-300 border-t border-obsidian-800 pt-6">
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Everything in Pro Plan</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Max file size: 2 GB</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>REST API access & Webhooks</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Check className="w-4 h-4 text-gold-400 flex-shrink-0" />
+                  <span>Dedicated cloud processing nodes</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-8">
+              <Link to="/register">
+                <Button variant="secondary" fullWidth>Contact Enterprise</Button>
               </Link>
             </div>
           </motion.div>
         </div>
 
-        {/* Security Assurance Banner */}
-        <div className="mt-16 rounded-2xl bg-obsidian-900 border border-obsidian-800 p-8 text-center max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-4 text-left">
-            <div className="w-12 h-12 rounded-xl bg-gold-500/10 border border-gold-500/20 flex items-center justify-center text-gold-400 flex-shrink-0">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-base font-bold text-ivory-100">Enterprise-Grade Security Included</h4>
-              <p className="text-sm text-muted-400">All data is end-to-end encrypted with automatic server purging.</p>
-            </div>
-          </div>
-          <Link to="/register">
-            <Button variant="secondary" className="whitespace-nowrap">
-              Try Pro Free for 14 Days
-            </Button>
-          </Link>
-        </div>
-
         {/* FAQs */}
-        <div className="mt-20 max-w-3xl mx-auto">
-          <div className="text-center mb-10">
-            <h2 className="text-2xl font-bold text-ivory-100 flex items-center justify-center gap-2">
+        <div className="mt-24 max-w-4xl mx-auto border-t border-obsidian-800/80 pt-16">
+          <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-ivory-100 flex items-center justify-center gap-2">
               <HelpCircle className="w-6 h-6 text-gold-400" />
               Frequently Asked Questions
             </h2>
-            <p className="text-sm text-muted-400 mt-1">Got questions? We've got answers.</p>
+            <p className="text-sm text-muted-400 mt-2">Have questions? We have answers.</p>
           </div>
 
           <div className="space-y-4">
@@ -300,15 +284,13 @@ export default function PricingPage() {
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                  className="w-full text-left p-5 flex items-center justify-between text-ivory-200 font-medium hover:text-gold-400 transition-colors"
+                  className="w-full px-6 py-4 text-left text-sm sm:text-base font-bold text-ivory-100 flex items-center justify-between focus:outline-none"
                 >
                   <span>{faq.q}</span>
-                  <span className="text-gold-400 font-bold ml-4 text-lg">
-                    {openFaq === idx ? '−' : '+'}
-                  </span>
+                  <span className="text-gold-400 text-lg ml-4">{openFaq === idx ? '−' : '+'}</span>
                 </button>
                 {openFaq === idx && (
-                  <div className="px-5 pb-5 text-sm text-muted-300 leading-relaxed border-t border-obsidian-800/50 pt-3">
+                  <div className="px-6 pb-5 pt-1 text-sm text-muted-400 leading-relaxed border-t border-obsidian-800/50">
                     {faq.a}
                   </div>
                 )}

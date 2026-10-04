@@ -1,6 +1,7 @@
 /**
- * VELTO — Tools Discovery Page
+ * VELTO — Tools Directory Page
  * Categorized grid of document, image, PDF, and OCR tools with filter & search.
+ * SEO-optimized with internal links to indexable converter landing pages.
  */
 
 import { useState } from 'react';
@@ -13,9 +14,6 @@ import {
   Layers,
   Split,
   Minimize2,
-  RotateCw,
-  Lock,
-  Unlock,
   Eye,
   ScanLine,
   Search,
@@ -24,6 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import AppShell from '../../components/layout/AppShell';
+import SeoHead from '../../components/seo/SeoHead';
 
 interface ToolItem {
   id: string;
@@ -33,40 +32,69 @@ interface ToolItem {
   icon: any;
   popular?: boolean;
   proOnly?: boolean;
-  fromFormat?: string;
-  toFormat?: string;
 }
 
 const TOOLS: ToolItem[] = [
   // PDF Tools
   {
     id: 'pdf-to-word',
-    name: 'PDF to Word',
+    name: 'PDF to Word Converter',
     description: 'Convert PDF files to editable DOCX documents with preserved layout.',
     category: 'pdf',
     icon: FileText,
     popular: true,
-    fromFormat: 'pdf',
-    toFormat: 'docx',
   },
   {
     id: 'word-to-pdf',
-    name: 'Word to PDF',
+    name: 'Word to PDF Converter',
     description: 'Convert DOCX files to professional standard PDF format instantly.',
     category: 'pdf',
     icon: FileText,
     popular: true,
-    fromFormat: 'docx',
-    toFormat: 'pdf',
   },
   {
     id: 'pdf-to-excel',
-    name: 'PDF to Excel',
+    name: 'PDF to Excel Converter',
     description: 'Extract tables and spreadsheet data from PDF files into XLSX.',
     category: 'pdf',
     icon: FileSpreadsheet,
-    fromFormat: 'pdf',
-    toFormat: 'xlsx',
+    popular: true,
+  },
+  {
+    id: 'excel-to-pdf',
+    name: 'Excel to PDF Converter',
+    description: 'Convert XLSX spreadsheets to clean printable PDF documents.',
+    category: 'pdf',
+    icon: FileSpreadsheet,
+  },
+  {
+    id: 'pdf-to-powerpoint',
+    name: 'PDF to PowerPoint Converter',
+    description: 'Convert PDF slides into editable PPTX presentations.',
+    category: 'pdf',
+    icon: FileText,
+  },
+  {
+    id: 'powerpoint-to-pdf',
+    name: 'PowerPoint to PDF Converter',
+    description: 'Convert PPTX presentations to portable PDF files.',
+    category: 'pdf',
+    icon: FileText,
+  },
+  {
+    id: 'pdf-to-jpg',
+    name: 'PDF to JPG Converter',
+    description: 'Convert PDF document pages to high-resolution JPG images.',
+    category: 'pdf',
+    icon: ImageIcon,
+    popular: true,
+  },
+  {
+    id: 'pdf-to-png',
+    name: 'PDF to PNG Converter',
+    description: 'Convert PDF document pages into lossless PNG graphics.',
+    category: 'pdf',
+    icon: ImageIcon,
   },
   {
     id: 'pdf-merge',
@@ -91,65 +119,89 @@ const TOOLS: ToolItem[] = [
     icon: Minimize2,
     popular: true,
   },
-  {
-    id: 'pdf-rotate',
-    name: 'Rotate PDF',
-    description: 'Rotate PDF pages clockwise or counter-clockwise.',
-    category: 'pdf',
-    icon: RotateCw,
-  },
-  {
-    id: 'pdf-protect',
-    name: 'Protect PDF',
-    description: 'Encrypt your PDF with password security & custom permissions.',
-    category: 'pdf',
-    icon: Lock,
-    proOnly: true,
-  },
-  {
-    id: 'pdf-unlock',
-    name: 'Unlock PDF',
-    description: 'Remove password protection and restrictions from PDF files.',
-    category: 'pdf',
-    icon: Unlock,
-    proOnly: true,
-  },
 
   // Image Tools
   {
     id: 'jpg-to-png',
-    name: 'JPG to PNG',
+    name: 'JPG to PNG Converter',
     description: 'Convert JPG images to PNG with transparency support.',
     category: 'image',
     icon: ImageIcon,
     popular: true,
-    fromFormat: 'jpg',
-    toFormat: 'png',
   },
   {
     id: 'png-to-jpg',
-    name: 'PNG to JPG',
+    name: 'PNG to JPG Converter',
     description: 'Convert PNG images to compressed high quality JPG files.',
     category: 'image',
     icon: ImageIcon,
-    fromFormat: 'png',
-    toFormat: 'jpg',
+    popular: true,
   },
   {
     id: 'webp-to-jpg',
-    name: 'WEBP to JPG',
+    name: 'WEBP to JPG Converter',
     description: 'Convert modern WEBP web images into standard JPG files.',
     category: 'image',
     icon: ImageIcon,
-    fromFormat: 'webp',
-    toFormat: 'jpg',
+    popular: true,
   },
   {
-    id: 'image-compress',
-    name: 'Compress Image',
-    description: 'Optimize image dimensions and quality for faster web loading.',
+    id: 'jpg-to-pdf',
+    name: 'JPG to PDF Converter',
+    description: 'Convert JPG photos into standard PDF documents.',
     category: 'image',
-    icon: Minimize2,
+    icon: ImageIcon,
+  },
+  {
+    id: 'png-to-pdf',
+    name: 'PNG to PDF Converter',
+    description: 'Convert PNG graphics into clean PDF documents.',
+    category: 'image',
+    icon: ImageIcon,
+  },
+  {
+    id: 'jpg-to-webp',
+    name: 'JPG to WebP Converter',
+    description: 'Convert JPG images to fast-loading WebP web format.',
+    category: 'image',
+    icon: ImageIcon,
+  },
+  {
+    id: 'png-to-webp',
+    name: 'PNG to WebP Converter',
+    description: 'Convert PNG images to WebP format while preserving transparency.',
+    category: 'image',
+    icon: ImageIcon,
+  },
+
+  // Document & Text Tools
+  {
+    id: 'txt-to-pdf',
+    name: 'TXT to PDF Converter',
+    description: 'Convert plain text files into formatted PDF documents.',
+    category: 'document',
+    icon: FileText,
+  },
+  {
+    id: 'txt-to-docx',
+    name: 'TXT to Word Converter',
+    description: 'Convert TXT text files to Microsoft Word DOCX documents.',
+    category: 'document',
+    icon: FileText,
+  },
+  {
+    id: 'html-to-pdf',
+    name: 'HTML to PDF Converter',
+    description: 'Convert HTML web pages and code to PDF files.',
+    category: 'document',
+    icon: FileText,
+  },
+  {
+    id: 'md-to-pdf',
+    name: 'Markdown to PDF Converter',
+    description: 'Convert Markdown documentation to clean PDF files.',
+    category: 'document',
+    icon: FileText,
   },
 
   // OCR Tools
@@ -186,19 +238,22 @@ export default function ToolsPage() {
 
   return (
     <AppShell>
+      {/* Dynamic SEO Metadata */}
+      <SeoHead />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gold-500/10 border border-gold-500/20 text-gold-400 text-xs font-semibold uppercase tracking-wider mb-2">
               <Sparkles className="w-3.5 h-3.5" />
-              VELTO Suite
+              VELTO Tools Suite
             </div>
             <h1 className="text-3xl font-extrabold text-ivory-100 tracking-tight">
-              File Conversion & PDF Tools
+              Online File Conversion Tools & PDF Utilities
             </h1>
             <p className="text-muted-400 text-sm mt-1">
-              Select a tool to convert, edit, compress, or extract text from your files.
+              Select a tool to convert PDF, Word, Excel, PowerPoint, images, and text documents.
             </p>
           </div>
 
@@ -207,7 +262,7 @@ export default function ToolsPage() {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-500" />
             <input
               type="text"
-              placeholder="Search tools..."
+              placeholder="Search tools (e.g. PDF to Word)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-obsidian-900 border border-obsidian-700 rounded-xl pl-10 pr-4 py-2 text-sm text-ivory-100 placeholder-muted-500 focus:outline-none focus:border-gold-500 transition-colors"
@@ -218,8 +273,9 @@ export default function ToolsPage() {
         {/* Category Filters */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-obsidian-800 scrollbar-none">
           {[
-            { id: 'all', label: 'All Tools' },
-            { id: 'pdf', label: 'PDF Utilities' },
+            { id: 'all', label: 'All Converters' },
+            { id: 'pdf', label: 'PDF Converters & Utilities' },
+            { id: 'document', label: 'Document & Text' },
             { id: 'image', label: 'Image Tools' },
             { id: 'ocr', label: 'OCR & Text' },
           ].map((cat) => (
@@ -246,10 +302,10 @@ export default function ToolsPage() {
                 key={tool.id}
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: idx * 0.04 }}
+                transition={{ duration: 0.3, delay: idx * 0.03 }}
               >
                 <Link
-                  to={tool.fromFormat && tool.toFormat ? `/convert?from=${tool.fromFormat}&to=${tool.toFormat}` : `/tools/${tool.id}`}
+                  to={`/tools/${tool.id}`}
                   className="group relative rounded-2xl bg-obsidian-900 border border-obsidian-800 p-6 flex flex-col justify-between hover:border-gold-500/50 hover:bg-obsidian-850 transition-all shadow-lg hover:shadow-gold-500/5 block h-full"
                 >
                   <div>
@@ -272,16 +328,16 @@ export default function ToolsPage() {
                       </div>
                     </div>
 
-                    <h3 className="text-lg font-bold text-ivory-100 group-hover:text-gold-400 transition-colors flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-ivory-100 group-hover:text-gold-400 transition-colors flex items-center gap-2">
                       {tool.name}
-                    </h3>
+                    </h2>
                     <p className="text-sm text-muted-400 mt-2 leading-relaxed">
                       {tool.description}
                     </p>
                   </div>
 
                   <div className="mt-6 pt-4 border-t border-obsidian-800/60 flex items-center justify-between text-xs text-gold-400 font-semibold group-hover:translate-x-1 transition-transform">
-                    <span>Use tool</span>
+                    <span>Use {tool.name}</span>
                     <ArrowRight className="w-4 h-4" />
                   </div>
                 </Link>
