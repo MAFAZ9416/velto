@@ -34,6 +34,7 @@ db.sqlite3-journal
 
 # ── Environment variables — NEVER commit real secrets ────────────────────────
 .env
+.env.example
 *.env
 **/.env
 **/.env.*
