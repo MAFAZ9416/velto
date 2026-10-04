@@ -1,0 +1,49 @@
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment files (secrets injected via Render env vars at runtime) ────────
+.env
+.env.*
+!.env.example
+
+# ── Local SQLite database ─────────────────────────────────────────────────────
+db.sqlite3
+*.db
+
+# ── Temporary upload/conversion staging ───────────────────────────────────────
+tmp_uploads/
+
+# ── Collected static (built inside Docker) ────────────────────────────────────
+staticfiles/
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ── IDEs / editors ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── OS metadata ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── CI/CD ─────────────────────────────────────────────────────────────────────
+.github/

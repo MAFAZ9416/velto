@@ -11,6 +11,8 @@ Scenarios covered:
   7. Invalid generated PDF output validation failure.
   8. Anonymous session isolation (cross-session access blocked with HTTP 404).
   9. Executable discovery ordering (LIBREOFFICE_PATH vs PATH vs Windows defaults).
+ 10. Linux PATH discovery: shutil.which('libreoffice') is checked before 'soffice'.
+ 11. Linux hardcoded path discovery: /usr/bin/soffice is found when not on PATH.
 """
 
 import io
@@ -62,7 +64,7 @@ class DocxToPdfEngineIntegrationTests(TestCase):
         self.docx_bytes = create_sample_docx_bytes()
 
     def test_find_libreoffice_executable_discovery(self):
-        """Verify executable discovery logic order."""
+        """Verify executable discovery logic order — LIBREOFFICE_PATH takes highest priority."""
         # 1. Custom LIBREOFFICE_PATH env var
         dummy_exe = os.path.join(TEST_TEMP_DIR, "mock_soffice.exe")
         with open(dummy_exe, "w") as f:
@@ -77,6 +79,58 @@ class DocxToPdfEngineIntegrationTests(TestCase):
             os.remove(dummy_exe)
         except OSError:
             pass
+
+    def test_find_libreoffice_linux_which_libreoffice(self):
+        """
+        shutil.which('libreoffice') must be checked before shutil.which('soffice').
+        This covers the Debian/Ubuntu apt package which creates a 'libreoffice' symlink.
+        """
+        dummy_exe = os.path.join(TEST_TEMP_DIR, "mock_libreoffice")
+        with open(dummy_exe, "w") as f:
+            f.write("mock")
+
+        def fake_which(name):
+            if name == "libreoffice":
+                return dummy_exe
+            return None
+
+        with patch.dict(os.environ, {}, clear=False), \
+             patch("apps.conversions.engines.libreoffice.shutil.which", side_effect=fake_which), \
+             patch.dict(os.environ, {"LIBREOFFICE_PATH": ""}):
+            found = find_libreoffice_executable()
+            self.assertEqual(found, dummy_exe)
+
+        try:
+            os.remove(dummy_exe)
+        except OSError:
+            pass
+
+    def test_find_libreoffice_linux_hardcoded_path(self):
+        """
+        When 'libreoffice' and 'soffice' are not on PATH, the hardcoded Linux
+        path list (e.g. /usr/bin/soffice) must be searched.
+        """
+        dummy_exe = os.path.join(TEST_TEMP_DIR, "mock_soffice_linux")
+        with open(dummy_exe, "w") as f:
+            f.write("mock")
+
+        # Patch Path.is_file so that only our dummy_exe reports True for the
+        # first Linux hardcoded path entry (/usr/bin/soffice).
+        from apps.conversions.engines import libreoffice as lo_module
+        original_linux_paths = lo_module._LINUX_LIBREOFFICE_PATHS
+
+        try:
+            lo_module._LINUX_LIBREOFFICE_PATHS = [dummy_exe]
+            with patch.dict(os.environ, {"LIBREOFFICE_PATH": ""}), \
+                 patch("apps.conversions.engines.libreoffice.shutil.which", return_value=None):
+                found = find_libreoffice_executable()
+                self.assertEqual(found, dummy_exe)
+        finally:
+            lo_module._LINUX_LIBREOFFICE_PATHS = original_linux_paths
+            try:
+                os.remove(dummy_exe)
+            except OSError:
+                pass
 
     def test_validate_docx_signature_valid(self):
         """Valid DOCX should pass validation without error."""

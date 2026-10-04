@@ -1,0 +1,108 @@
+# =============================================================================
+# render.yaml — VELTO Conversion Backend
+# Render Blueprint (Infrastructure-as-Code) for Docker-based deployment.
+#
+# This file configures Render to build and run the Django/Gunicorn backend
+# using the Dockerfile in ./backend, which includes LibreOffice headless.
+#
+# Usage:
+#   1. Commit this file to the root of the repository.
+#   2. In Render Dashboard → New → Blueprint → point to this file.
+#   OR configure manually via the Render web UI using the values below.
+#
+# Environment variables marked with "sync: false" MUST be set manually
+# in the Render dashboard (they contain secrets that must not be in VCS).
+# =============================================================================
+
+services:
+  - type: web
+    name: velto-backend
+    runtime: docker
+    # Docker build context is the backend/ subdirectory.
+    # Render resolves the Dockerfile relative to the repo root.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+
+    # Health check path — Django returns 200 OK from /api/health/
+    healthCheckPath: /api/health/
+
+    # Render injects $PORT automatically; Gunicorn binds to it.
+    # Leave the plan/region blank here — set them in the dashboard.
+
+    envVars:
+      # ── Django Core ──────────────────────────────────────────────────────────
+      - key: DJANGO_ENV
+        value: production
+
+      - key: DEBUG
+        value: "False"
+
+      - key: SECRET_KEY
+        sync: false          # Set in Render dashboard — never commit secrets
+
+      - key: ALLOWED_HOSTS
+        # Include your Render service hostname here.
+        value: velto-lt1m.onrender.com
+
+      - key: CORS_ALLOWED_ORIGINS
+        # No trailing slash on origins (Django corsheaders E014).
+        value: https://velto-brown.vercel.app
+
+      # ── Database ─────────────────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false          # Neon PostgreSQL connection string — set in dashboard
+
+      - key: ALLOW_SQLITE_FALLBACK
+        value: "false"
+
+      # ── File upload staging ──────────────────────────────────────────────────
+      # Inside Docker the tmp dir lives in /app/tmp_uploads (created in Dockerfile).
+      - key: TEMP_UPLOAD_DIR
+        value: /app/tmp_uploads
+
+      - key: MAX_UPLOAD_SIZE
+        value: "52428800"    # 50 MB
+
+      # ── LibreOffice ──────────────────────────────────────────────────────────
+      # Not required — libreoffice is on PATH in the Docker image.
+      # Set LIBREOFFICE_PATH only if you need to pin to a specific binary.
+      # - key: LIBREOFFICE_PATH
+      #   value: /usr/bin/libreoffice
+
+      - key: LIBREOFFICE_TIMEOUT
+        value: "90"          # seconds; must be < GUNICORN_TIMEOUT
+
+      # ── Gunicorn tuning ──────────────────────────────────────────────────────
+      - key: GUNICORN_WORKERS
+        value: "2"           # Render Starter plan: 1 CPU — keep at 2
+
+      - key: GUNICORN_TIMEOUT
+        value: "120"         # seconds; cover large document conversions
+
+      # ── Celery / Redis ───────────────────────────────────────────────────────
+      # Leave blank if not using background tasks; set if Redis is provisioned.
+      # - key: REDIS_URL
+      #   sync: false
+      # - key: CELERY_BROKER_URL
+      #   sync: false
+      # - key: CELERY_RESULT_BACKEND
+      #   sync: false
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: "True"        # Run tasks synchronously (no Celery worker needed)
+
+      # ── Object storage ────────────────────────────────────────────────────────
+      - key: STORAGE_BACKEND
+        value: local         # Use 'local' for Render ephemeral disk or 's3' for S3
+
+      # ── Optional: Sentry error tracking ─────────────────────────────────────
+      # - key: SENTRY_DSN
+      #   sync: false
+      # - key: SENTRY_ENVIRONMENT
+      #   value: production
+
+      # ── Logging ──────────────────────────────────────────────────────────────
+      - key: ENVIRONMENT
+        value: production
+
+      - key: LOG_LEVEL
+        value: INFO

@@ -2,10 +2,17 @@
 LibreOffice conversion utilities & shared subprocess orchestration.
 
 Provides:
-  - find_libreoffice_executable(): Discovers soffice via LIBREOFFICE_PATH, PATH, and standard Windows paths.
+  - find_libreoffice_executable(): Discovers soffice/libreoffice via LIBREOFFICE_PATH,
+    PATH, standard Linux paths, and standard Windows paths.
   - run_libreoffice_pdf_conversion(): Core subprocess execution with isolated working directory,
     isolated user profile (-env:UserInstallation), timeout enforcement, exit code validation,
     missing output check, PyMuPDF output validation, and output copy.
+
+Production note (Linux/Docker/Render):
+  Install LibreOffice headless via the OS package manager, e.g.:
+    apt-get install -y --no-install-recommends libreoffice libreoffice-writer libreoffice-calc libreoffice-impress
+  The executable will be on PATH as both 'libreoffice' and 'soffice'.
+  Optionally override with the LIBREOFFICE_PATH environment variable.
 """
 
 import logging
@@ -20,44 +27,74 @@ from apps.conversions.engines.validators import validate_pdf_output
 
 logger = logging.getLogger(__name__)
 
+# Common Linux installation paths for LibreOffice (searched in order).
+_LINUX_LIBREOFFICE_PATHS = [
+    "/usr/bin/soffice",
+    "/usr/bin/libreoffice",
+    "/usr/lib/libreoffice/program/soffice",
+    "/usr/local/bin/soffice",
+    "/usr/local/bin/libreoffice",
+    "/opt/libreoffice/program/soffice",
+    "/snap/bin/libreoffice",
+]
+
 
 def find_libreoffice_executable() -> str | None:
     """
-    Locate the LibreOffice executable (`soffice`).
+    Locate the LibreOffice executable (`soffice` / `libreoffice`).
 
     Discovery order:
-    1. `LIBREOFFICE_PATH` environment variable, if provided and valid.
-    2. `soffice` available through PATH.
-    3. Windows default installation path:
-       `C:\\Program Files\\LibreOffice\\program\\soffice.exe`
-    4. Windows alternative path:
-       `C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe`
+    1. ``LIBREOFFICE_PATH`` environment variable, if provided and the path is a valid file.
+    2. ``libreoffice`` available through PATH (Debian/Ubuntu package name on Linux).
+    3. ``soffice`` / ``soffice.exe`` available through PATH.
+    4. Common Linux installation paths (see ``_LINUX_LIBREOFFICE_PATHS``).
+    5. Windows 64-bit default installation path.
+    6. Windows 32-bit default installation path.
 
     Returns
     -------
     str | None
-        Absolute path to soffice executable, or None if not found.
+        Absolute path to the LibreOffice executable, or ``None`` if not found.
     """
-    # 1. LIBREOFFICE_PATH env var
+    # 1. LIBREOFFICE_PATH env var — highest priority; allows explicit override on any OS.
     env_path = os.environ.get("LIBREOFFICE_PATH")
     if env_path and Path(env_path).is_file():
+        logger.debug("LibreOffice found via LIBREOFFICE_PATH env var: %s", env_path)
         return env_path
 
-    # 2. soffice available on PATH
+    # 2. 'libreoffice' on PATH (Debian/Ubuntu apt package installs this name on Linux).
+    lo_path = shutil.which("libreoffice")
+    if lo_path and Path(lo_path).is_file():
+        logger.debug("LibreOffice found via shutil.which('libreoffice'): %s", lo_path)
+        return lo_path
+
+    # 3. 'soffice' / 'soffice.exe' on PATH.
     path_exe = shutil.which("soffice") or shutil.which("soffice.exe")
     if path_exe and Path(path_exe).is_file():
+        logger.debug("LibreOffice found via shutil.which('soffice'): %s", path_exe)
         return path_exe
 
-    # 3. Standard Windows 64-bit install path
+    # 4. Common Linux installation paths.
+    for linux_path in _LINUX_LIBREOFFICE_PATHS:
+        p = Path(linux_path)
+        if p.is_file():
+            logger.debug("LibreOffice found at Linux path: %s", linux_path)
+            return linux_path
+
+    # 5. Standard Windows 64-bit install path.
     win_path1 = Path(r"C:\Program Files\LibreOffice\program\soffice.exe")
     if win_path1.is_file():
         return str(win_path1)
 
-    # 4. Standard Windows 32-bit install path
+    # 6. Standard Windows 32-bit install path.
     win_path2 = Path(r"C:\Program Files (x86)\LibreOffice\program\soffice.exe")
     if win_path2.is_file():
         return str(win_path2)
 
+    logger.warning(
+        "LibreOffice executable not found. Searched LIBREOFFICE_PATH env var, PATH "
+        "('libreoffice', 'soffice'), Linux default paths, and Windows default paths."
+    )
     return None
 
 
